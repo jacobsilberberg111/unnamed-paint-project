@@ -14,6 +14,7 @@ extension ScanGeometry {
             windows: room.windows.map { ScannedSurface($0, kind: .window) },
             openings: room.openings.map { ScannedSurface($0, kind: .opening) },
             floors: room.floors.map { ScannedSurface($0, kind: .floor) },
+            objects: room.objects.map { ScannedObject($0) },
             roomType: room.sections.first.map { String(describing: $0.label) }
         )
     }
@@ -43,6 +44,20 @@ extension ScannedSurface {
             confidence: ScanConfidence(s.confidence),
             completedEdges: Set(s.completedEdges.compactMap { SurfaceEdge($0) }),
             isOpen: isOpen
+        )
+    }
+}
+
+extension ScannedObject {
+    init(_ o: CapturedRoom.Object) {
+        let t = o.transform
+        self.init(
+            id: o.identifier,
+            category: String(describing: o.category),
+            dimensions: vec3(o.dimensions),
+            center: vec3(t.columns.3),
+            xAxis: vec3(t.columns.0),
+            zAxis: vec3(t.columns.2)
         )
     }
 }

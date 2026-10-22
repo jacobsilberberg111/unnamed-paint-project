@@ -14,13 +14,14 @@ public enum SurfaceFlag: String, Codable, Sendable {
     case tapeMeasured
     /// RoomPlan wasn't confident about this surface.
     case lowConfidence
-    /// The wall's top edge wasn't scanned, so the height may be short.
-    case ceilingLineMissed
-    /// Ceiling line wasn't scanned and the wall came up short, so its height was
-    /// taken from the walls that were scanned properly.
+    /// The wall came up noticeably shorter than the rest of the room (usually its
+    /// ceiling line wasn't scanned), so the room's height was used instead.
     case heightFromRoom
-    /// The wall's bottom edge wasn't scanned.
-    case floorLineMissed
+    /// A door or window with furniture in front of it. Clutter is the most common
+    /// cause of false detections, so it's worth a glance.
+    case nearFurniture
+    /// The painter changed what RoomPlan thought this was (e.g. window → door).
+    case typeCorrected
     case curved
     /// Not a rectangle: gable end, raked ceiling or similar.
     case sloped
@@ -65,19 +66,29 @@ public struct Surface: Codable, Identifiable, Equatable, Sendable {
     public var paintAreaM2: Double { max(0, grossAreaM2 - openingsM2) }
 }
 
-/// A tape-measured correction to one surface. nil fields keep the LiDAR value.
-public struct SizeOverride: Codable, Equatable, Sendable {
+/// The painter's correction to one surface. nil fields keep what the scan said.
+public struct SurfaceOverride: Codable, Equatable, Sendable {
     public var surfaceId: UUID
+    /// Tape-measured size.
     public var widthM: Double?
     public var heightM: Double?
+    /// What it really is, when RoomPlan got the type wrong (doors, windows, openings only).
+    public var kind: SurfaceKind?
+    /// A false detection: leave it out of every measurement.
+    public var removed: Bool?
 
-    public init(surfaceId: UUID, widthM: Double? = nil, heightM: Double? = nil) {
+    public init(surfaceId: UUID, widthM: Double? = nil, heightM: Double? = nil,
+                kind: SurfaceKind? = nil, removed: Bool? = nil) {
         self.surfaceId = surfaceId
         self.widthM = widthM
         self.heightM = heightM
+        self.kind = kind
+        self.removed = removed
     }
 
-    public var isEmpty: Bool { widthM == nil && heightM == nil }
+    public var isEmpty: Bool { widthM == nil && heightM == nil && kind == nil && removed != true }
+    var isRemoved: Bool { removed == true }
+    var hasSize: Bool { widthM != nil || heightM != nil }
 }
 
 public struct Room: Codable, Identifiable, Equatable, Sendable {
@@ -87,11 +98,11 @@ public struct Room: Codable, Identifiable, Equatable, Sendable {
     /// Saved `CapturedRoom` JSON, relative to the room's folder.
     public var scanFile: String?
     public var geometry: ScanGeometry
-    public var overrides: [SizeOverride]
+    public var overrides: [SurfaceOverride]
 
     public init(
         id: UUID = UUID(), name: String, createdAt: Date = Date(),
-        scanFile: String? = nil, geometry: ScanGeometry, overrides: [SizeOverride] = []
+        scanFile: String? = nil, geometry: ScanGeometry, overrides: [SurfaceOverride] = []
     ) {
         self.id = id
         self.name = name
@@ -107,15 +118,27 @@ public struct Room: Codable, Identifiable, Equatable, Sendable {
 
     public var surfaces: [Surface] { measure().surfaces }
 
-    public func override(for surfaceId: UUID) -> SizeOverride? {
+    public func override(for surfaceId: UUID) -> SurfaceOverride? {
         overrides.first { $0.surfaceId == surfaceId }
     }
 
-    public mutating func setOverride(_ override: SizeOverride?, for surfaceId: UUID) {
+    public mutating func setOverride(_ override: SurfaceOverride?, for surfaceId: UUID) {
         overrides.removeAll { $0.surfaceId == surfaceId }
-        if let override, !override.isEmpty {
-            overrides.append(SizeOverride(surfaceId: surfaceId, widthM: override.widthM, heightM: override.heightM))
+        if var override, !override.isEmpty {
+            override.surfaceId = surfaceId
+            overrides.append(override)
         }
+    }
+
+    /// The surface as RoomPlan reported it, before any corrections.
+    public func scannedSurface(_ id: UUID) -> ScannedSurface? {
+        (geometry.walls + geometry.doors + geometry.windows + geometry.openings).first { $0.id == id }
+    }
+
+    /// Detections the painter removed, so they can be put back.
+    public var removedSurfaces: [ScannedSurface] {
+        let ids = Set(overrides.filter(\.isRemoved).map(\.surfaceId))
+        return (geometry.walls + geometry.doors + geometry.windows + geometry.openings).filter { ids.contains($0.id) }
     }
 }
 
@@ -177,6 +200,8 @@ public struct FloorPlan: Equatable, Sendable {
     public var floorOutline: [Vec2] = []
     /// Wall ends that don't meet another wall: gaps in the outline.
     public var openEnds: [Vec2] = []
+    /// Furniture footprints, each four corners.
+    public var objects: [[Vec2]] = []
 
     public init() {}
 

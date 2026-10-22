@@ -52,7 +52,7 @@ struct RoomDetailView: View {
             } header: {
                 Text("Walls")
             } footer: {
-                Text("Tap a wall to enter a tape measurement.")
+                Text("Tap a wall to enter a tape measurement or remove it if it isn't real.")
             }
 
             if !m.openingSurfaces.isEmpty {
@@ -63,6 +63,28 @@ struct RoomDetailView: View {
                         }
                         .buttonStyle(.plain)
                     }
+                }
+            }
+
+            if !room.removedSurfaces.isEmpty {
+                Section {
+                    ForEach(room.removedSurfaces) { removed in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(removed.kind.rawValue.capitalized).font(.headline)
+                                Text(Units.size(removed.width, removed.height))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button("Put back") { room.setOverride(nil, for: removed.id) }
+                                .buttonStyle(.borderless)
+                        }
+                    }
+                } header: {
+                    Text("Removed")
+                } footer: {
+                    Text("False detections you've removed. They're left out of every measurement.")
                 }
             }
 
@@ -94,7 +116,11 @@ struct RoomDetailView: View {
             }
         }
         .sheet(item: $editing) { surface in
-            SurfaceEditSheet(surface: surface) { override in
+            SurfaceEditSheet(
+                surface: surface,
+                originalKind: room.scannedSurface(surface.id)?.kind ?? surface.kind,
+                existing: room.override(for: surface.id)
+            ) { override in
                 room.setOverride(override, for: surface.id)
             }
         }

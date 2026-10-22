@@ -55,6 +55,7 @@ struct ScanTipsView: View {
         Tip(symbol: "figure.walk", title: "Walk the walls slowly", detail: "Go all the way round. Each wall draws in as it's measured."),
         Tip(symbol: "arrow.up.and.down", title: "Tilt up and down on every wall", detail: "Catch the ceiling line and the skirting so heights are exact."),
         Tip(symbol: "door.left.hand.open", title: "Point at every door and window", detail: "They're subtracted from the paint area, so each needs to be seen."),
+        Tip(symbol: "sofa.fill", title: "Clutter can fool it", detail: "Wardrobes, drum kits and shelving against a wall sometimes read as windows. You can fix or remove any detection afterwards."),
         Tip(symbol: "map.fill", title: "Watch the map", detail: "Red dots are gaps. Finish back where you started, with no red dots."),
     ]
 

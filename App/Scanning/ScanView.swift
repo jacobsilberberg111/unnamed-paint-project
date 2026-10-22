@@ -137,7 +137,6 @@ extension ScanGuidance {
         case .closeGap: return "smallcircle.filled.circle"
         case .ceilingLine: return "arrow.up.to.line"
         case .rescan: return "arrow.clockwise"
-        case .floorLine: return "arrow.down.to.line"
         case .complete: return "checkmark.seal.fill"
         }
     }
@@ -146,7 +145,7 @@ extension ScanGuidance {
         switch self {
         case .complete: return .green
         case .closeGap: return .red
-        case .ceilingLine, .floorLine, .rescan: return .orange
+        case .ceilingLine, .rescan: return .orange
         case .findFirstWall, .keepGoing: return .accentColor
         }
     }
@@ -161,11 +160,9 @@ struct ScanChecklist: View {
             row("Corners joined",
                 coverage.wallCount < 3 ? "—" : coverage.openEndCount == 0 ? "All" : "\(coverage.openEndCount) loose",
                 done: coverage.isClosed)
-            if coverage.edgeInfoAvailable {
-                row("Ceiling line",
-                    coverage.wallsMissingCeilingLine.isEmpty ? "All walls" : "Missing \(coverage.wallsMissingCeilingLine.joined(separator: ", "))",
-                    done: coverage.wallCount > 0 && coverage.wallsMissingCeilingLine.isEmpty)
-            }
+            row("Wall heights",
+                coverage.wallCount < 3 ? "—" : coverage.shortWalls.isEmpty ? "Even" : "\(coverage.shortWalls.joined(separator: ", ")) short",
+                done: coverage.wallCount >= 3 && coverage.shortWalls.isEmpty)
             row("Doors", "\(coverage.doorCount)", done: coverage.doorCount + coverage.openingCount > 0)
             row("Windows", "\(coverage.windowCount)", done: nil)
         }

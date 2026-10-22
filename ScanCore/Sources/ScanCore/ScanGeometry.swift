@@ -30,8 +30,9 @@ public struct ScannedSurface: Codable, Identifiable, Equatable, Sendable {
     /// The wall a door or window sits in, when RoomPlan knows it.
     public var parentId: UUID?
     public var confidence: ScanConfidence
-    /// Edges RoomPlan has finished scanning. A wall missing `.top` hasn't had its
-    /// ceiling line captured, so its height may be short.
+    /// Edges RoomPlan reports as finished. Kept for reference but not used: on a real
+    /// iPad it didn't track whether the ceiling line had been scanned, so short walls
+    /// are detected from their height instead.
     public var completedEdges: Set<SurfaceEdge>
     public var isOpen: Bool?
 
@@ -90,6 +91,47 @@ public struct ScannedSurface: Codable, Identifiable, Equatable, Sendable {
     }
 }
 
+/// A piece of furniture RoomPlan recognised (bed, storage, table…). Not measured,
+/// but clutter is what most often fools door and window detection.
+public struct ScannedObject: Codable, Identifiable, Equatable, Sendable {
+    public var id: UUID
+    /// RoomPlan's category, e.g. "bed", "storage".
+    public var category: String
+    /// x = width, y = height, z = depth, in the object's own axes.
+    public var dimensions: Vec3
+    public var center: Vec3
+    public var xAxis: Vec3
+    public var zAxis: Vec3
+
+    public init(id: UUID = UUID(), category: String, dimensions: Vec3, center: Vec3,
+                xAxis: Vec3 = Vec3(1, 0, 0), zAxis: Vec3 = Vec3(0, 0, 1)) {
+        self.id = id
+        self.category = category
+        self.dimensions = dimensions
+        self.center = center
+        self.xAxis = xAxis
+        self.zAxis = zAxis
+    }
+
+    /// Footprint corners seen from above.
+    public var planCorners: [Vec2] {
+        let a = xAxis.plan.normalized * (dimensions.x / 2)
+        let b = zAxis.plan.normalized * (dimensions.z / 2)
+        let c = center.plan
+        return [c + a + b, c - a + b, c - a - b, c + a - b]
+    }
+
+    /// Whether a point is inside the footprint, grown by `margin`, and the height
+    /// range [bottom, top] overlaps the object's.
+    func overlaps(planPoint p: Vec2, bottom: Double, top: Double, margin: Double) -> Bool {
+        let d = p - center.plan
+        let inPlan = abs(d.dot(xAxis.plan.normalized)) <= dimensions.x / 2 + margin
+            && abs(d.dot(zAxis.plan.normalized)) <= dimensions.z / 2 + margin
+        let objectBottom = center.y - dimensions.y / 2, objectTop = center.y + dimensions.y / 2
+        return inPlan && top > objectBottom && bottom < objectTop
+    }
+}
+
 /// Everything the scan found that matters for measuring a room.
 public struct ScanGeometry: Codable, Equatable, Sendable {
     public var walls: [ScannedSurface]
@@ -97,6 +139,7 @@ public struct ScanGeometry: Codable, Equatable, Sendable {
     public var windows: [ScannedSurface]
     public var openings: [ScannedSurface]
     public var floors: [ScannedSurface]
+    public var objects: [ScannedObject]
     /// RoomPlan's guess at the room type, e.g. "livingRoom".
     public var roomType: String?
 
@@ -106,6 +149,7 @@ public struct ScanGeometry: Codable, Equatable, Sendable {
         windows: [ScannedSurface] = [],
         openings: [ScannedSurface] = [],
         floors: [ScannedSurface] = [],
+        objects: [ScannedObject] = [],
         roomType: String? = nil
     ) {
         self.walls = walls
@@ -113,7 +157,24 @@ public struct ScanGeometry: Codable, Equatable, Sendable {
         self.windows = windows
         self.openings = openings
         self.floors = floors
+        self.objects = objects
         self.roomType = roomType
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case walls, doors, windows, openings, floors, objects, roomType
+    }
+
+    // Rooms saved before furniture was recorded have no "objects" key.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        walls = try c.decode([ScannedSurface].self, forKey: .walls)
+        doors = try c.decode([ScannedSurface].self, forKey: .doors)
+        windows = try c.decode([ScannedSurface].self, forKey: .windows)
+        openings = try c.decode([ScannedSurface].self, forKey: .openings)
+        floors = try c.decode([ScannedSurface].self, forKey: .floors)
+        objects = try c.decodeIfPresent([ScannedObject].self, forKey: .objects) ?? []
+        roomType = try c.decodeIfPresent(String.self, forKey: .roomType)
     }
 
     /// "livingRoom" → "Living room"; nil when RoomPlan couldn't tell.

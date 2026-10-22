@@ -9,13 +9,16 @@ import Foundation
 ///    When the walls close into a loop, each corner is where the two neighbouring wall
 ///    planes intersect, and wall lengths and floor area come from those corners.
 ///  - Consensus ceiling height. Walls within a few cm of the room's median height are
-///    snapped to it (that spread is scan noise), and a wall whose ceiling line wasn't
-///    scanned takes the height of the walls that were.
+///    snapped to it (that spread is scan noise). A wall that comes up clearly shorter
+///    than the rest almost always had its ceiling line missed, so it takes the room's
+///    height and is flagged for a tape check.
 public enum MeasurementEngine {
     /// Wall ends closer than this count as meeting at a corner.
     public static let cornerTolerance = 0.3
     /// Wall heights within this of the room's median are treated as noise and snapped to it.
     public static let heightConsensusTolerance = 0.03
+    /// How far furniture can be from a door or window and still be "in front of" it.
+    static let furnitureMargin = 0.3
     /// How far an opening's centre can sit off a wall's plane and still belong to it.
     static let openingPlaneTolerance = 0.35
     /// An opening whose bottom is within this of the floor breaks the skirting.
@@ -30,17 +33,24 @@ public enum MeasurementEngine {
     /// Neighbouring walls closer to parallel than this can't be intersected reliably.
     static let minCornerAngle = 10.0 * Double.pi / 180
 
-    public static func measure(_ g: ScanGeometry, overrides: [SizeOverride] = []) -> RoomMeasurements {
+    public static func measure(_ g: ScanGeometry, overrides: [SurfaceOverride] = []) -> RoomMeasurements {
         let overrideById = Dictionary(overrides.map { ($0.surfaceId, $0) }, uniquingKeysWith: { _, last in last })
-        let walls = clockwise(g.walls)
-        // Some results carry no edge information at all. Only treat a missing edge as
-        // meaningful when at least one wall reports a completed edge.
-        let edgeSignal = walls.contains { !$0.completedEdges.isEmpty }
+        func kept(_ s: ScannedSurface) -> Bool { overrideById[s.id]?.isRemoved != true }
+        // Painter's type corrections: a "window" that's really a door, and so on.
+        func retyped(_ s: ScannedSurface) -> ScannedSurface {
+            guard let kind = overrideById[s.id]?.kind, kind != s.kind, [.door, .window, .opening].contains(kind) else { return s }
+            var s = s
+            s.kind = kind
+            return s
+        }
+
+        let walls = clockwise(g.walls.filter(kept))
         let graph = WallGraph(walls)
         let wallsWithOpenEnds = Set(graph.openEnds.map(\.wall))
         let corners = graph.loop.map { refinedCorners($0, walls: walls) }
         let sloped = walls.map(isSloped)
-        let heights = consensusHeights(walls, sloped: sloped, edgeSignal: edgeSignal)
+        let heights = consensusHeights(walls, sloped: sloped)
+        let openingsIn = (g.doors + g.windows + g.openings).filter(kept).map(retyped)
 
         let frames = walls.indices.map { i in
             WallFrame(
@@ -53,11 +63,11 @@ public enum MeasurementEngine {
 
         // Doors, windows and openings, each placed on its wall.
         var placed: [PlacedOpening] = []
-        for o in g.doors + g.windows + g.openings {
+        for o in openingsIn {
             let ov = overrideById[o.id]
             let w = ov?.widthM ?? o.width
             let h = ov?.heightM ?? o.height
-            var p = PlacedOpening(surface: o, frame: nil, width: w, height: h, clipped: nil, u: 0, tapeMeasured: ov.map { !$0.isEmpty } ?? false)
+            var p = PlacedOpening(surface: o, frame: nil, width: w, height: h, clipped: nil, u: 0, tapeMeasured: ov?.hasSize ?? false)
             if let frame = wallFrame(for: o, in: frames) {
                 let local = frame.local(o.center)
                 p.frame = frame
@@ -92,9 +102,8 @@ public enum MeasurementEngine {
             }
             if frame.tapeMeasured { flags.append(.tapeMeasured) }
             if wall.confidence == .low { flags.append(.lowConfidence) }
-            if edgeSignal, !wall.completedEdges.contains(.top) { flags.append(.ceilingLineMissed) }
-            if heights[i].fromRoom { flags.append(.heightFromRoom) }
-            if edgeSignal, !wall.completedEdges.contains(.bottom) { flags.append(.floorLineMissed) }
+            // A tape-measured height replaces the guess, so the warning no longer applies.
+            if heights[i].fromRoom, overrideById[wall.id]?.heightM == nil { flags.append(.heightFromRoom) }
 
             let openingsArea = Geometry.unionArea(placed.filter { $0.frame?.index == i }.compactMap(\.clipped))
             surfaces.append(Surface(
@@ -111,7 +120,7 @@ public enum MeasurementEngine {
                 start: frame.planEnds.start, end: frame.planEnds.end,
                 lengthM: frame.width,
                 needsAttention: wallsWithOpenEnds.contains(i)
-                    || flags.contains(.lowConfidence) || flags.contains(.ceilingLineMissed)
+                    || flags.contains(.lowConfidence) || flags.contains(.heightFromRoom)
             ))
         }
 
@@ -124,8 +133,14 @@ public enum MeasurementEngine {
             let (name, short) = kind == .door ? ("Door", "D") : kind == .window ? ("Window", "W") : ("Opening", "O")
             var flags: [SurfaceFlag] = []
             if p.tapeMeasured { flags.append(.tapeMeasured) }
+            if overrideById[p.surface.id]?.kind != nil { flags.append(.typeCorrected) }
             if p.surface.confidence == .low { flags.append(.lowConfidence) }
             if p.frame == nil { flags.append(.notOnAWall) }
+            let bottom = p.surface.center.y - p.surface.height / 2
+            if g.objects.contains(where: { $0.overlaps(planPoint: p.surface.center.plan, bottom: bottom,
+                                                        top: bottom + p.surface.height, margin: furnitureMargin) }) {
+                flags.append(.nearFurniture)
+            }
             surfaces.append(Surface(
                 id: p.surface.id, kind: kind, label: "\(name) \(n)",
                 widthM: p.width, heightM: p.height, grossAreaM2: p.width * p.height,
@@ -136,7 +151,7 @@ public enum MeasurementEngine {
             let ends = p.surface.planEndpoints
             plan.openings.append(PlanSegment(
                 id: p.surface.id, kind: kind, shortLabel: "\(short)\(n)", start: ends.start, end: ends.end,
-                lengthM: p.width, needsAttention: p.frame == nil
+                lengthM: p.width, needsAttention: p.frame == nil || flags.contains(.nearFurniture)
             ))
             switch kind {
             case .door: summary.doorTrimM += 2 * p.height + p.width
@@ -166,14 +181,15 @@ public enum MeasurementEngine {
             ))
         }
         plan.openEnds = graph.openEnds.map(\.point)
+        plan.objects = g.objects.map(\.planCorners)
 
         // Totals
         let wallSurfaces = surfaces.filter { $0.kind == .wall }
         let wallHeights = wallSurfaces.map(\.heightM)
         summary.wallCount = wallSurfaces.count
-        summary.doorCount = g.doors.count
-        summary.windowCount = g.windows.count
-        summary.openingCount = g.openings.count
+        summary.doorCount = openingsIn.filter { $0.kind == .door }.count
+        summary.windowCount = openingsIn.filter { $0.kind == .window }.count
+        summary.openingCount = openingsIn.filter { $0.kind == .opening }.count
         summary.wallGrossM2 = wallSurfaces.map(\.grossAreaM2).reduce(0, +)
         summary.openingsM2 = wallSurfaces.map(\.openingsM2).reduce(0, +)
         summary.wallPaintM2 = wallSurfaces.map(\.paintAreaM2).reduce(0, +)
@@ -240,19 +256,26 @@ public enum MeasurementEngine {
         return area > 0.01 && area < wall.dimensions.x * wall.height * slopedThreshold
     }
 
+    /// The room's ceiling height: median of the flat walls RoomPlan is confident about.
+    static func referenceHeight(_ walls: [ScannedSurface], sloped: [Bool]) -> Double? {
+        let flat = walls.indices.filter { !sloped[$0] }
+        let trusted = flat.filter { walls[$0].confidence != .low }
+        return Geometry.median((trusted.isEmpty ? flat : trusted).map { walls[$0].height })
+    }
+
     /// Wall heights after snapping scan noise to the room's consensus ceiling height.
-    static func consensusHeights(_ walls: [ScannedSurface], sloped: [Bool], edgeSignal: Bool) -> [(height: Double, fromRoom: Bool)] {
-        let raw = walls.map { (height: $0.height, fromRoom: false) }
-        let trusted = walls.indices.filter { i in
-            !sloped[i] && walls[i].confidence != .low && (!edgeSignal || walls[i].completedEdges.contains(.top))
+    /// A wall clearly shorter than the room is assumed to have had its ceiling line
+    /// missed (it's far more common than a genuinely lower wall in one room) and gets
+    /// the room's height, flagged. Taller walls are left alone.
+    static func consensusHeights(_ walls: [ScannedSurface], sloped: [Bool]) -> [(height: Double, fromRoom: Bool)] {
+        guard walls.count >= 3, let reference = referenceHeight(walls, sloped: sloped) else {
+            return walls.map { (height: $0.height, fromRoom: false) }
         }
-        guard let reference = Geometry.median(trusted.map { walls[$0].height }) else { return raw }
         return walls.indices.map { i in
             let h = walls[i].height
             if sloped[i] { return (h, false) }
             if abs(h - reference) <= heightConsensusTolerance { return (reference, false) }
-            // Ceiling line never scanned and the wall came up short: use the room's height.
-            if edgeSignal, !walls[i].completedEdges.contains(.top), h < reference { return (reference, true) }
+            if h < reference { return (reference, true) }
             return (h, false)
         }
     }
@@ -330,7 +353,7 @@ struct WallFrame {
     let scaleY: Double
     let tapeMeasured: Bool
 
-    init(wall: ScannedSurface, index: Int, ends: (start: Vec2, end: Vec2)?, lidarHeight: Double, override: SizeOverride?) {
+    init(wall: ScannedSurface, index: Int, ends: (start: Vec2, end: Vec2)?, lidarHeight: Double, override: SurfaceOverride?) {
         self.wall = wall
         self.index = index
         shortLabel = MeasurementEngine.wallLabel(index)
@@ -359,7 +382,7 @@ struct WallFrame {
         height = override?.heightM ?? lidarHeight
         scaleX = lidarWidth > 0 ? width / lidarWidth : 1
         scaleY = lidarHeight > 0 ? height / lidarHeight : 1
-        tapeMeasured = override.map { !$0.isEmpty } ?? false
+        tapeMeasured = override?.hasSize ?? false
     }
 
     /// The wall face, centred on the origin, in its final size.

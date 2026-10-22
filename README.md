@@ -37,8 +37,12 @@ which accepts this app's `room.json` or a raw RoomPlan `CapturedRoom` JSON
   neighbouring wall planes intersect. LiDAR fixes a wall's face far better than its ends,
   so this gives tighter lengths and floor area than raw wall widths.
 - **Heights**: walls within 3 cm of the room's median height are snapped to it (that spread
-  is scan noise). A wall whose ceiling line was never scanned and came up short takes the
-  room height and is flagged.
+  is scan noise). A wall that comes up clearly shorter than the rest (almost always a missed
+  ceiling line) takes the room height and is flagged for a tape check.
+- **Corrections**: tap any door or window to change what it is (window → door) or remove it
+  as a false detection; walls can be removed too (a wardrobe front read as a wall). Doors and
+  windows with furniture in front of them are flagged, since clutter causes most false
+  detections. Furniture is drawn on the floor plan.
 - **Openings**: doors/windows are attached to their wall (RoomPlan's parent id, else nearest
   plane), clipped to the wall, and overlaps are counted once.
 - **Sloped and curved walls** use their real outline or arc length, not width × height.

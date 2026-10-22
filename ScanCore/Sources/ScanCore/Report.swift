@@ -12,9 +12,9 @@ extension SurfaceFlag {
         switch self {
         case .tapeMeasured: return "Tape-measured"
         case .lowConfidence: return "Low scan confidence"
-        case .ceilingLineMissed: return "Ceiling line not scanned"
-        case .heightFromRoom: return "Height from other walls"
-        case .floorLineMissed: return "Floor line not scanned"
+        case .heightFromRoom: return "Short scan: used room height"
+        case .nearFurniture: return "Furniture in front: check it's real"
+        case .typeCorrected: return "Type corrected"
         case .curved: return "Curved"
         case .sloped: return "Sloped / not rectangular"
         case .notOnAWall: return "Not matched to a wall"
@@ -24,8 +24,8 @@ extension SurfaceFlag {
     /// Flags that mean the number may be off and is worth a tape check.
     public var isWarning: Bool {
         switch self {
-        case .lowConfidence, .ceilingLineMissed, .heightFromRoom, .floorLineMissed, .notOnAWall: return true
-        case .tapeMeasured, .curved, .sloped: return false
+        case .lowConfidence, .heightFromRoom, .nearFurniture, .notOnAWall: return true
+        case .tapeMeasured, .typeCorrected, .curved, .sloped: return false
         }
     }
 }

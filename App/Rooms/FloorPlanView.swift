@@ -28,6 +28,14 @@ struct FloorPlanView: View {
                 context.fill(floor, with: .color(.accentColor.opacity(0.10)))
             }
 
+            for corners in plan.objects where corners.count >= 3 {
+                var footprint = Path()
+                footprint.addLines(corners.map(fit.point))
+                footprint.closeSubpath()
+                context.fill(footprint, with: .color(.secondary.opacity(0.18)))
+                context.stroke(footprint, with: .color(.secondary.opacity(0.5)), lineWidth: 1)
+            }
+
             for wall in plan.walls {
                 let isHighlighted = wall.id == highlighted
                 let color: Color = isHighlighted ? .accentColor : wall.needsAttention ? .orange : .primary
@@ -39,12 +47,13 @@ struct FloorPlanView: View {
             }
 
             for opening in plan.openings {
-                let color: Color
+                var color: Color
                 switch opening.kind {
                 case .door: color = .brown
                 case .window: color = .cyan
                 default: color = .gray
                 }
+                if opening.needsAttention { color = .orange }
                 context.stroke(
                     segmentPath(opening, fit),
                     with: .color(color),

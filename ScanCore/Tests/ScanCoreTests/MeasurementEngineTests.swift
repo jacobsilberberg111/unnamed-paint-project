@@ -85,7 +85,7 @@ final class MeasurementEngineTests: XCTestCase {
         let b = box()
         let window = opening(.window, on: b.north, u: 0, bottom: 1, width: 1.2, height: 1.0)
         var room = Room(name: "Test", geometry: ScanGeometry(walls: [b.north, b.east, b.south, b.west], windows: [window]))
-        room.setOverride(SizeOverride(surfaceId: b.north.id, widthM: 4.05, heightM: 2.41), for: b.north.id)
+        room.setOverride(SurfaceOverride(surfaceId: b.north.id, widthM: 4.05, heightM: 2.41), for: b.north.id)
         let m = room.measure()
         let north = m.surface(b.north.id)!
         XCTAssertEqual(north.widthM, 4.05)
@@ -97,7 +97,7 @@ final class MeasurementEngineTests: XCTestCase {
         XCTAssertEqual(m.summary.perimeterM, 14.05, accuracy: 1e-9)
 
         // Window override flows into the wall it sits in.
-        room.setOverride(SizeOverride(surfaceId: window.id, widthM: 1.0), for: window.id)
+        room.setOverride(SurfaceOverride(surfaceId: window.id, widthM: 1.0), for: window.id)
         XCTAssertEqual(room.measure().surface(b.north.id)!.openingsM2, 1.0, accuracy: 1e-9)
 
         // Clearing returns to the LiDAR value.
@@ -201,7 +201,7 @@ final class MeasurementEngineTests: XCTestCase {
 
     func testRoomRoundTripsThroughJSON() throws {
         var room = Room.sample
-        room.setOverride(SizeOverride(surfaceId: room.geometry.walls[0].id, widthM: 4.1), for: room.geometry.walls[0].id)
+        room.setOverride(SurfaceOverride(surfaceId: room.geometry.walls[0].id, widthM: 4.1), for: room.geometry.walls[0].id)
         let data = try JSONEncoder().encode(room)
         let decoded = try JSONDecoder().decode(Room.self, from: data)
         XCTAssertEqual(decoded, room)

@@ -218,12 +218,11 @@ final class AccuracyTests: XCTestCase {
         XCTAssertEqual(heights.first!, 2.42, accuracy: 0.015)
     }
 
-    func testWallMissingCeilingLineTakesRoomHeight() {
+    func testShortWallTakesRoomHeight() {
         var ws = walls(around: rectangle(width: 4, depth: 3, yaw: 0, offset: .zero), height: 2.4)
-        // Painter never tilted up on this wall: RoomPlan stopped it at 2.05 m.
+        // Painter never swept this wall's ceiling line: RoomPlan stopped it at 2.05 m.
         ws[1].dimensions.y = 2.05
         ws[1].center.y = 2.05 / 2
-        ws[1].completedEdges = [.bottom, .left, .right]
         let window = opening(.window, on: ws[1], u: 0, bottom: 0.9, width: 1.0, height: 1.0)
         let m = MeasurementEngine.measure(ScanGeometry(walls: ws, windows: [window]))
         let wall = m.surface(ws[1].id)!
@@ -231,23 +230,120 @@ final class AccuracyTests: XCTestCase {
         XCTAssertEqual(wall.grossAreaM2, 3 * 2.4, accuracy: 1e-9)
         XCTAssertEqual(wall.openingsM2, 1.0, accuracy: 1e-9) // window stays where it is
         XCTAssertTrue(wall.flags.contains(.heightFromRoom))
-        XCTAssertTrue(wall.flags.contains(.ceilingLineMissed))
+        XCTAssertTrue(m.plan.walls.first { $0.id == ws[1].id }!.needsAttention)
+
+        // A tape-measured height wins and clears the warning.
+        var room = Room(name: "T", geometry: ScanGeometry(walls: ws, windows: [window]))
+        room.setOverride(SurfaceOverride(surfaceId: ws[1].id, heightM: 2.1), for: ws[1].id)
+        let taped = room.measure().surface(ws[1].id)!
+        XCTAssertEqual(taped.heightM, 2.1, accuracy: 1e-9)
+        XCTAssertFalse(taped.flags.contains(.heightFromRoom))
     }
 
-    func testGenuinelyDifferentHeightIsKept() {
-        // A wall that is really lower (fully scanned, top edge seen) isn't forced to match.
+    func testTallerWallIsKept() {
         var ws = walls(around: rectangle(width: 4, depth: 3, yaw: 0, offset: .zero), height: 2.4)
-        ws[2].dimensions.y = 2.1
-        ws[2].center.y = 1.05
+        ws[2].dimensions.y = 2.7
+        ws[2].center.y = 1.35
         let m = MeasurementEngine.measure(ScanGeometry(walls: ws))
-        XCTAssertEqual(m.surface(ws[2].id)!.heightM, 2.1, accuracy: 1e-9)
+        XCTAssertEqual(m.surface(ws[2].id)!.heightM, 2.7, accuracy: 1e-9)
         XCTAssertFalse(m.surface(ws[2].id)!.flags.contains(.heightFromRoom))
+        XCTAssertEqual(m.summary.ceilingHeightM, 2.4, accuracy: 1e-9)
+    }
+
+    func testRemovedFalseWindowIsIgnoredAndRestorable() {
+        let ws = walls(around: rectangle(width: 4, depth: 3, yaw: 0, offset: .zero), height: 2.4)
+        let real = opening(.window, on: ws[0], u: -1, bottom: 0.9, width: 1.0, height: 1.0)
+        let fake = opening(.window, on: ws[2], u: 0.5, bottom: 0.4, width: 1.2, height: 1.5)
+        var room = Room(name: "Bedroom", geometry: ScanGeometry(walls: ws, windows: [real, fake]))
+        XCTAssertEqual(room.measure().summary.openingsM2, 2.8, accuracy: 1e-9)
+
+        room.setOverride(SurfaceOverride(surfaceId: fake.id, removed: true), for: fake.id)
+        let m = room.measure()
+        XCTAssertNil(m.surface(fake.id))
+        XCTAssertEqual(m.summary.windowCount, 1)
+        XCTAssertEqual(m.summary.openingsM2, 1.0, accuracy: 1e-9)
+        XCTAssertEqual(m.surface(real.id)?.label, "Window 1")
+        XCTAssertEqual(room.removedSurfaces.map(\.id), [fake.id])
+
+        room.setOverride(nil, for: fake.id)
+        XCTAssertEqual(room.measure().summary.windowCount, 2)
+        XCTAssertTrue(room.removedSurfaces.isEmpty)
+    }
+
+    func testWindowRetypedAsDoor() {
+        let ws = walls(around: rectangle(width: 4, depth: 3, yaw: 0, offset: .zero), height: 2.4)
+        // A glass door RoomPlan called a window.
+        let glass = opening(.window, on: ws[1], u: 0, bottom: 0, width: 0.9, height: 2.1)
+        var room = Room(name: "T", geometry: ScanGeometry(walls: ws, windows: [glass]))
+        XCTAssertEqual(room.measure().summary.skirtingM, 14 - 0.9, accuracy: 1e-9) // floor-level anyway
+
+        room.setOverride(SurfaceOverride(surfaceId: glass.id, kind: .door), for: glass.id)
+        let m = room.measure()
+        XCTAssertEqual(m.summary.doorCount, 1)
+        XCTAssertEqual(m.summary.windowCount, 0)
+        XCTAssertEqual(m.surface(glass.id)?.label, "Door 1")
+        XCTAssertEqual(m.summary.doorTrimM, 2 * 2.1 + 0.9, accuracy: 1e-9)
+        XCTAssertEqual(m.summary.windowTrimM, 0)
+        XCTAssertTrue(m.surface(glass.id)!.flags.contains(.typeCorrected))
+        XCTAssertFalse(m.surface(glass.id)!.flags.contains(.tapeMeasured))
+        XCTAssertNil(room.tapeCheck) // a type fix isn't a tape measurement
+    }
+
+    func testRemovedWallOpensTheOutline() {
+        // A wardrobe front mistaken for a wall, standing inside the room.
+        var ws = walls(around: rectangle(width: 4, depth: 3, yaw: 0, offset: .zero), height: 2.4)
+        let wardrobe = ScannedSurface(kind: .wall, dimensions: Vec3(1.2, 2.0, 0), center: Vec3(-1.0, 1.0, 0.5),
+                                      xAxis: Vec3(1, 0, 0), yAxis: up, normal: Vec3(0, 0, 1))
+        ws.append(wardrobe)
+        var room = Room(name: "T", geometry: ScanGeometry(walls: ws))
+        XCTAssertEqual(room.measure().summary.wallCount, 5)
+        XCTAssertFalse(room.measure().summary.isClosed) // free-standing ends
+        room.setOverride(SurfaceOverride(surfaceId: wardrobe.id, removed: true), for: wardrobe.id)
+        let s = room.measure().summary
+        XCTAssertEqual(s.wallCount, 4)
+        XCTAssertTrue(s.isClosed)
+        XCTAssertEqual(s.floorM2 ?? -1, 12, accuracy: 1e-9)
+    }
+
+    func testFurnitureInFrontOfWindowIsFlagged() {
+        let ws = walls(around: rectangle(width: 4, depth: 3, yaw: 0.4, offset: Vec2(2, -1)), height: 2.4)
+        let behindDrums = opening(.window, on: ws[0], u: 1, bottom: 0.6, width: 1.0, height: 1.0)
+        let aboveBed = opening(.window, on: ws[2], u: 0, bottom: 1.0, width: 1.2, height: 1.0)
+        let clear = opening(.window, on: ws[1], u: 0, bottom: 1.0, width: 1.0, height: 1.0)
+        func inFront(of o: ScannedSurface, depth: Double, height: Double, category: String) -> ScannedObject {
+            let c = o.center + o.normal.normalized * (depth / 2 + 0.05)
+            return ScannedObject(category: category, dimensions: Vec3(1.0, height, depth),
+                                 center: Vec3(c.x, height / 2, c.z), xAxis: o.xAxis, zAxis: o.normal)
+        }
+        let drums = inFront(of: behindDrums, depth: 0.8, height: 1.3, category: "storage")
+        // A bed under a window is normal: it sits below the sill, so no flag.
+        let bed = inFront(of: aboveBed, depth: 2.0, height: 0.6, category: "bed")
+        let m = MeasurementEngine.measure(ScanGeometry(walls: ws, windows: [behindDrums, aboveBed, clear], objects: [drums, bed]))
+        XCTAssertTrue(m.surface(behindDrums.id)!.flags.contains(.nearFurniture))
+        XCTAssertFalse(m.surface(aboveBed.id)!.flags.contains(.nearFurniture))
+        XCTAssertFalse(m.surface(clear.id)!.flags.contains(.nearFurniture))
+        XCTAssertEqual(m.plan.objects.count, 2)
+        // Flags never change the numbers by themselves.
+        XCTAssertEqual(m.summary.openingsM2, 1.0 + 1.2 + 1.0, accuracy: 1e-9)
+    }
+
+    func testRoomsSavedBeforeFurnitureStillLoad() throws {
+        // room.json written by the first build had no "objects" key or override kind/removed.
+        var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(Room.sample)) as! [String: Any]
+        var geometry = json["geometry"] as! [String: Any]
+        geometry.removeValue(forKey: "objects")
+        json["geometry"] = geometry
+        json["overrides"] = [["surfaceId": Room.sample.geometry.walls[0].id.uuidString, "widthM": 4.1]]
+        let room = try JSONDecoder().decode(Room.self, from: JSONSerialization.data(withJSONObject: json))
+        XCTAssertTrue(room.geometry.objects.isEmpty)
+        XCTAssertEqual(room.overrides.first?.widthM, 4.1)
+        XCTAssertEqual(room.measure().summary.wallCount, 4)
     }
 
     func testTapeCheckReportsLidarError() {
         var room = Room.sample
         let wall = room.geometry.walls[0]
-        room.setOverride(SizeOverride(surfaceId: wall.id, widthM: wall.width + 0.012, heightM: wall.height - 0.004), for: wall.id)
+        room.setOverride(SurfaceOverride(surfaceId: wall.id, widthM: wall.width + 0.012, heightM: wall.height - 0.004), for: wall.id)
         let check = room.tapeCheck!
         XCTAssertEqual(check.samples.count, 2)
         XCTAssertEqual(check.worst.errorM, -0.012, accuracy: 1e-9)
