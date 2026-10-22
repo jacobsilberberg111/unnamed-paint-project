@@ -13,7 +13,7 @@ extension SurfaceFlag {
         case .tapeMeasured: return "Tape-measured"
         case .lowConfidence: return "Low scan confidence"
         case .heightFromRoom: return "Short scan: used room height"
-        case .nearFurniture: return "Furniture in front: check it's real"
+        case .nearFurniture: return "Behind furniture: check it's real"
         case .tinyWall: return "Tiny wall: remove if not real"
         case .typeCorrected: return "Type corrected"
         case .curved: return "Curved"

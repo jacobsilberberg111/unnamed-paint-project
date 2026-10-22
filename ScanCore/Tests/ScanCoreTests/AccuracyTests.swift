@@ -358,6 +358,24 @@ final class AccuracyTests: XCTestCase {
         XCTAssertEqual(m.summary.floorM2 ?? -1, 4.43 * 3.33 - c * c / 2, accuracy: 1e-9)
     }
 
+    func testShoeRackBesideDoorIsNotFlagged() {
+        // From a real scan: a shoe rack next to the bedroom door flagged the door.
+        let ws = walls(around: rectangle(width: 4, depth: 3, yaw: 0.2, offset: .zero), height: 2.6)
+        let door = opening(.door, on: ws[1], u: 0.3, bottom: 0, width: 0.86, height: 2.1)
+        func rack(u: Double) -> ScannedObject {
+            let c = ws[1].center + ws[1].xAxis.normalized * u + ws[1].normal.normalized * 0.2
+            return ScannedObject(category: "storage", dimensions: Vec3(0.8, 0.5, 0.35), center: Vec3(c.x, 0.25, c.z),
+                                 xAxis: ws[1].xAxis, zAxis: ws[1].normal)
+        }
+        func flagged(_ o: ScannedObject) -> Bool {
+            MeasurementEngine.measure(ScanGeometry(walls: ws, doors: [door], objects: [o]))
+                .surface(door.id)!.flags.contains(.nearFurniture)
+        }
+        XCTAssertFalse(flagged(rack(u: 0.3 + 0.43 + 0.05 + 0.4)))  // beside the frame
+        XCTAssertFalse(flagged(rack(u: 0.3 + 0.43 + 0.4 - 0.17)))  // over the edge, ~20% of the width
+        XCTAssertTrue(flagged(rack(u: 0.3)))                       // right across the doorway
+    }
+
     func testRoomsSavedBeforeFurnitureStillLoad() throws {
         // room.json written by the first build had no "objects" key or override kind/removed.
         var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(Room.sample)) as! [String: Any]

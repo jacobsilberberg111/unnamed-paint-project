@@ -17,8 +17,10 @@ public enum MeasurementEngine {
     public static let cornerTolerance = 0.3
     /// Wall heights within this of the room's median are treated as noise and snapped to it.
     public static let heightConsensusTolerance = 0.03
-    /// How far furniture can be from a door or window and still be "in front of" it.
-    static let furnitureMargin = 0.3
+    /// Furniture "in front of" a door or window is within this of its wall…
+    static let furnitureDepth = 0.5
+    /// …and covers at least this share of its width.
+    static let furnitureCoverage = 0.5
     /// How far an opening's centre can sit off a wall's plane and still belong to it.
     static let openingPlaneTolerance = 0.35
     /// An opening whose bottom is within this of the floor breaks the skirting.
@@ -139,8 +141,8 @@ public enum MeasurementEngine {
             if p.surface.confidence == .low { flags.append(.lowConfidence) }
             if p.frame == nil { flags.append(.notOnAWall) }
             let bottom = p.surface.center.y - p.surface.height / 2
-            if g.objects.contains(where: { $0.overlaps(planPoint: p.surface.center.plan, bottom: bottom,
-                                                        top: bottom + p.surface.height, margin: furnitureMargin) }) {
+            if g.objects.contains(where: { $0.blocks(p.surface, width: p.surface.width, bottom: bottom, top: bottom + p.surface.height,
+                                                      depth: furnitureDepth, coverage: furnitureCoverage) }) {
                 flags.append(.nearFurniture)
             }
             surfaces.append(Surface(

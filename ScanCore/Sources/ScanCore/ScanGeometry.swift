@@ -121,14 +121,20 @@ public struct ScannedObject: Codable, Identifiable, Equatable, Sendable {
         return [c + a + b, c - a + b, c - a - b, c + a - b]
     }
 
-    /// Whether a point is inside the footprint, grown by `margin`, and the height
-    /// range [bottom, top] overlaps the object's.
-    func overlaps(planPoint p: Vec2, bottom: Double, top: Double, margin: Double) -> Bool {
-        let d = p - center.plan
-        let inPlan = abs(d.dot(xAxis.plan.normalized)) <= dimensions.x / 2 + margin
-            && abs(d.dot(zAxis.plan.normalized)) <= dimensions.z / 2 + margin
+    /// Whether this object stands in front of a door or window: within `depth` of
+    /// its wall, covering at least `coverage` of its width, and overlapping its height.
+    /// Something merely beside the opening (a shoe rack next to a door) doesn't count.
+    func blocks(_ opening: ScannedSurface, width: Double, bottom: Double, top: Double,
+                depth: Double, coverage: Double) -> Bool {
         let objectBottom = center.y - dimensions.y / 2, objectTop = center.y + dimensions.y / 2
-        return inPlan && top > objectBottom && bottom < objectTop
+        guard top > objectBottom, bottom < objectTop else { return false }
+        let along = opening.xAxis.plan.normalized, out = opening.normal.plan.normalized
+        let rel = planCorners.map { $0 - opening.center.plan }
+        let us = rel.map { $0.dot(along) }, ns = rel.map { $0.dot(out) }
+        // Footprint reaches within `depth` of the wall plane (either side).
+        guard ns.min()! <= depth, ns.max()! >= -depth else { return false }
+        let overlap = min(us.max()!, width / 2) - max(us.min()!, -width / 2)
+        return overlap >= coverage * width
     }
 }
 
