@@ -33,7 +33,8 @@ public enum MeasurementEngine {
     /// Neighbouring walls closer to parallel than this can't be intersected reliably.
     static let minCornerAngle = 10.0 * Double.pi / 180
 
-    public static func measure(_ g: ScanGeometry, overrides: [SurfaceOverride] = []) -> RoomMeasurements {
+    public static func measure(_ g: ScanGeometry, overrides: [SurfaceOverride] = [],
+                               furniture choices: [FurniturePaint] = []) -> RoomMeasurements {
         let overrideById = Dictionary(overrides.map { ($0.surfaceId, $0) }, uniquingKeysWith: { _, last in last })
         func kept(_ s: ScannedSurface) -> Bool { overrideById[s.id]?.isRemoved != true }
         // Painter's type corrections: a "window" that's really a door, and so on.
@@ -182,7 +183,11 @@ public enum MeasurementEngine {
             ))
         }
         plan.openEnds = graph.openEnds.map(\.point)
-        plan.objects = g.objects.map(\.planCorners)
+        let furniture = FurnitureEstimator.items(g.objects, walls: walls, choices: choices)
+        let painted = Set(furniture.filter(\.isPainted).map(\.id))
+        plan.objects = g.objects.map { PlanObject(id: $0.id, corners: $0.planCorners, isPainted: painted.contains($0.id)) }
+        summary.furniturePaintM2 = furniture.filter(\.isPainted).map(\.paintAreaM2).reduce(0, +)
+        summary.furniturePaintCount = painted.count
 
         // Totals
         let wallSurfaces = surfaces.filter { $0.kind == .wall }
@@ -206,7 +211,7 @@ public enum MeasurementEngine {
         summary.skirtingM = max(0, summary.perimeterM - doorways)
         summary.gapCount = graph.openEnds.count
 
-        return RoomMeasurements(surfaces: surfaces, summary: summary, plan: plan)
+        return RoomMeasurements(surfaces: surfaces, summary: summary, plan: plan, furniture: furniture)
     }
 
     // MARK: Refinements

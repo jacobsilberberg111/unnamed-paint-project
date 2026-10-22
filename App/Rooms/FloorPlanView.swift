@@ -50,13 +50,18 @@ struct FloorPlanView: View {
             ))
         }
 
-        // Furniture
-        for corners in plan.objects where corners.count >= 3 {
+        // Furniture: painted pieces in the accent colour, the rest faint
+        for object in plan.objects where object.corners.count >= 3 {
             var footprint = Path()
-            footprint.addLines(corners.map(fit.point))
+            footprint.addLines(object.corners.map(fit.point))
             footprint.closeSubpath()
-            context.fill(footprint, with: .color(.white.opacity(0.07)))
-            context.stroke(footprint, with: .color(.white.opacity(0.18)), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+            if object.isPainted {
+                context.fill(footprint, with: .color(Theme.accent.opacity(0.35)))
+                context.stroke(footprint, with: .color(Theme.accent), lineWidth: 1.5)
+            } else {
+                context.fill(footprint, with: .color(.white.opacity(0.07)))
+                context.stroke(footprint, with: .color(.white.opacity(0.18)), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+            }
         }
 
         // Walls, with a soft glow underneath

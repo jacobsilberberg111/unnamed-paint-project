@@ -54,6 +54,10 @@ extension RoomMeasurements {
         lines.append("Perimeter: \(Units.metres(s.perimeterM)) · Ceiling height: \(Units.metres(s.ceilingHeightM))")
         lines.append("Skirting: \(Units.metres(s.skirtingM)) · Door frames: \(Units.metres(s.doorTrimM)) · Window frames: \(Units.metres(s.windowTrimM))")
         lines.append("\(s.wallCount) walls, \(s.doorCount) doors, \(s.windowCount) windows, \(s.openingCount) openings")
+        if s.furniturePaintCount > 0 {
+            let names = furniture.filter(\.isPainted).map(\.label).joined(separator: ", ")
+            lines.append("Furniture to paint: \(Units.squareMetres(s.furniturePaintM2)) (\(names))")
+        }
         if !s.isClosed { lines.append("Warning: the wall outline isn't closed (\(s.gapCount) loose ends).") }
         lines.append("")
         for w in walls {

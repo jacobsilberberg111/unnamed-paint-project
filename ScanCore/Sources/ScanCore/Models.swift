@@ -102,10 +102,13 @@ public struct Room: Codable, Identifiable, Equatable, Sendable {
     public var scanFile: String?
     public var geometry: ScanGeometry
     public var overrides: [SurfaceOverride]
+    /// Furniture the painter has chosen to paint.
+    public var furniture: [FurniturePaint]
 
     public init(
         id: UUID = UUID(), name: String, createdAt: Date = Date(),
-        scanFile: String? = nil, geometry: ScanGeometry, overrides: [SurfaceOverride] = []
+        scanFile: String? = nil, geometry: ScanGeometry, overrides: [SurfaceOverride] = [],
+        furniture: [FurniturePaint] = []
     ) {
         self.id = id
         self.name = name
@@ -113,10 +116,35 @@ public struct Room: Codable, Identifiable, Equatable, Sendable {
         self.scanFile = scanFile
         self.geometry = geometry
         self.overrides = overrides
+        self.furniture = furniture
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, createdAt, scanFile, geometry, overrides, furniture
+    }
+
+    // Rooms saved before furniture painting existed have no "furniture" key.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        scanFile = try c.decodeIfPresent(String.self, forKey: .scanFile)
+        geometry = try c.decode(ScanGeometry.self, forKey: .geometry)
+        overrides = try c.decodeIfPresent([SurfaceOverride].self, forKey: .overrides) ?? []
+        furniture = try c.decodeIfPresent([FurniturePaint].self, forKey: .furniture) ?? []
     }
 
     public func measure() -> RoomMeasurements {
-        MeasurementEngine.measure(geometry, overrides: overrides)
+        MeasurementEngine.measure(geometry, overrides: overrides, furniture: furniture)
+    }
+
+    /// Paint a piece of furniture or not, optionally with a measured area (nil = estimate).
+    public mutating func setFurniture(_ objectId: UUID, include: Bool, areaM2: Double? = nil) {
+        furniture.removeAll { $0.objectId == objectId }
+        if include || areaM2 != nil {
+            furniture.append(FurniturePaint(objectId: objectId, include: include, areaM2: areaM2))
+        }
     }
 
     public var surfaces: [Surface] { measure().surfaces }
@@ -177,6 +205,10 @@ public struct RoomSummary: Codable, Equatable, Sendable {
     /// Four sides per window.
     public var windowTrimM = 0.0
     public var gapCount = 0
+    /// Furniture the painter chose to paint, kept apart from walls: it's joinery
+    /// work, usually priced differently.
+    public var furniturePaintM2 = 0.0
+    public var furniturePaintCount = 0
 
     public init() {}
 
@@ -203,8 +235,8 @@ public struct FloorPlan: Equatable, Sendable {
     public var floorOutline: [Vec2] = []
     /// Wall ends that don't meet another wall: gaps in the outline.
     public var openEnds: [Vec2] = []
-    /// Furniture footprints, each four corners.
-    public var objects: [[Vec2]] = []
+    /// Furniture footprints.
+    public var objects: [PlanObject] = []
 
     public init() {}
 
@@ -213,10 +245,18 @@ public struct FloorPlan: Equatable, Sendable {
     }
 }
 
+public struct PlanObject: Identifiable, Equatable, Sendable {
+    public var id: UUID
+    public var corners: [Vec2]
+    public var isPainted: Bool
+}
+
 public struct RoomMeasurements: Equatable, Sendable {
     public var surfaces: [Surface]
     public var summary: RoomSummary
     public var plan: FloorPlan
+    /// Furniture that could be painted (appliances left out).
+    public var furniture: [FurnitureItem] = []
 
     public var walls: [Surface] { surfaces.filter { $0.kind == .wall } }
     public var openingSurfaces: [Surface] { surfaces.filter { [.door, .window, .opening].contains($0.kind) } }

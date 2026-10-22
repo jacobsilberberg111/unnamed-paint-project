@@ -43,6 +43,9 @@ which accepts this app's `room.json` or a raw RoomPlan `CapturedRoom` JSON
   as a false detection; walls can be removed too (a wardrobe front read as a wall). Doors and
   windows with furniture in front of them are flagged, since clutter causes most false
   detections. Furniture is drawn on the floor plan.
+- **Furniture**: anything RoomPlan recognises (appliances aside) can be switched on for
+  painting. Area is estimated from its outline (front, exposed sides and top; faces against a
+  wall are skipped) or typed in, and totalled separately from the walls.
 - **Openings**: doors/windows are attached to their wall (RoomPlan's parent id, else nearest
   plane), clipped to the wall, and overlaps are counted once.
 - **Sloped and curved walls** use their real outline or arc length, not width × height.

@@ -7,6 +7,7 @@ struct RoomDetailView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var room: Room
     @State private var editing: Surface?
+    @State private var editingFurniture: FurnitureItem?
     @State private var saveError: String?
 
     init(room: Room) {
@@ -49,6 +50,12 @@ struct RoomDetailView: View {
                 room.setOverride(override, for: surface.id)
             }
             .presentationDetents([.medium, .large])
+        }
+        .sheet(item: $editingFurniture) { item in
+            FurnitureEditSheet(item: item) { include, area in
+                room.setFurniture(item.id, include: include, areaM2: area)
+            }
+            .presentationDetents([.medium])
         }
         .onChange(of: room) { _, updated in
             do {
@@ -103,6 +110,17 @@ struct RoomDetailView: View {
                         OpeningRow(opening: opening, wallLabel: opening.wallId.flatMap { m.surface($0)?.label })
                     }
                     .buttonStyle(PressableStyle())
+                }
+            }
+        }
+
+        if !m.furniture.isEmpty {
+            ListCard(title: "Furniture", footer: "Switch on anything you're painting, like a built-in wardrobe. It's totalled separately from the walls. Tap one to enter a measured area.") {
+                ForEach(Array(m.furniture.enumerated()), id: \.element.id) { index, item in
+                    if index > 0 { Divider().overlay(Theme.stroke) }
+                    FurnitureRow(item: item, onEdit: { editingFurniture = item }) { include in
+                        room.setFurniture(item.id, include: include, areaM2: item.isAreaMeasured ? item.paintAreaM2 : nil)
+                    }
                 }
             }
         }
@@ -216,6 +234,10 @@ private struct StatsGrid: View {
             StatTile(title: "Skirting", value: Units.metres(s.skirtingM))
             StatTile(title: "Door frames", value: Units.metres(s.doorTrimM), detail: "\(s.doorCount) door\(s.doorCount == 1 ? "" : "s"), one side")
             StatTile(title: "Window frames", value: Units.metres(s.windowTrimM), detail: "\(s.windowCount) window\(s.windowCount == 1 ? "" : "s")")
+            if s.furniturePaintCount > 0 {
+                StatTile(title: "Furniture to paint", value: Units.squareMetres(s.furniturePaintM2),
+                         detail: "\(s.furniturePaintCount) piece\(s.furniturePaintCount == 1 ? "" : "s")")
+            }
         }
     }
 }
@@ -342,6 +364,71 @@ private struct FlagPills: View {
         ForEach(flags, id: \.self) { flag in
             Pill(text: flag.description, color: flag.isWarning ? Theme.warn : Theme.window)
         }
+    }
+}
+
+private struct FurnitureRow: View {
+    let item: FurnitureItem
+    let onEdit: () -> Void
+    let onToggle: (Bool) -> Void
+
+    private var symbol: String {
+        switch item.category {
+        case "storage": return "cabinet.fill"
+        case "table": return "table.furniture.fill"
+        case "chair": return "chair.fill"
+        case "bed": return "bed.double.fill"
+        case "sofa": return "sofa.fill"
+        case "fireplace": return "fireplace.fill"
+        case "stairs": return "stairs"
+        default: return "shippingbox.fill"
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Button(action: onEdit) {
+                HStack(spacing: 14) {
+                    Image(systemName: symbol)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(item.isPainted ? Color.white : Color.secondary)
+                        .frame(width: 36, height: 36)
+                        .background {
+                            if item.isPainted {
+                                Circle().fill(Theme.gradient)
+                            } else {
+                                Circle().fill(Color.white.opacity(0.08))
+                            }
+                        }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(item.label)
+                            .font(.headline)
+                            .foregroundStyle(.white)
+                        Text(String(format: "%.2f × %.2f × %.2f m", item.widthM, item.heightM, item.depthM))
+                            .font(.caption)
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 8)
+                    VStack(alignment: .trailing, spacing: 0) {
+                        Text(String(format: "%.1f", item.paintAreaM2))
+                            .font(.number(20))
+                            .monospacedDigit()
+                            .foregroundStyle(item.isPainted ? Color.white : Color.secondary)
+                        Text(item.isAreaMeasured ? "m² measured" : "m² est.")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PressableStyle())
+
+            Toggle("Paint \(item.label)", isOn: Binding(get: { item.isPainted }, set: onToggle))
+                .labelsHidden()
+                .tint(Theme.accent)
+        }
+        .padding(.vertical, 4)
     }
 }
 
