@@ -52,8 +52,12 @@ struct RoomDetailView: View {
             .presentationDetents([.medium, .large])
         }
         .sheet(item: $editingFurniture) { item in
-            FurnitureEditSheet(item: item) { include, area in
-                room.setFurniture(item.id, include: include, areaM2: area)
+            FurnitureEditSheet(item: item) { include, builtIn, area in
+                room.updateFurniture(item.id) {
+                    $0.include = include
+                    $0.builtIn = builtIn ? true : nil
+                    $0.areaM2 = area
+                }
             }
             .presentationDetents([.medium])
         }
@@ -96,7 +100,8 @@ struct RoomDetailView: View {
             ForEach(Array(m.walls.enumerated()), id: \.element.id) { index, wall in
                 if index > 0 { Divider().overlay(Theme.stroke) }
                 Button { editing = wall } label: {
-                    WallRow(wall: wall, openings: m.openings(onWall: wall.id))
+                    WallRow(wall: wall, openings: m.openings(onWall: wall.id),
+                            builtIns: m.furniture.filter { $0.coveredWallIds.contains(wall.id) })
                 }
                 .buttonStyle(PressableStyle())
             }
@@ -115,12 +120,10 @@ struct RoomDetailView: View {
         }
 
         if !m.furniture.isEmpty {
-            ListCard(title: "Furniture", footer: "Switch on anything you're painting, like a built-in wardrobe. It's totalled separately from the walls. Tap one to enter a measured area.") {
+            ListCard(title: "Furniture", footer: "Tap built-in cupboards and wardrobes so the wall behind them isn't counted. You can also add a piece you're painting; it's totalled separately from the walls.") {
                 ForEach(Array(m.furniture.enumerated()), id: \.element.id) { index, item in
                     if index > 0 { Divider().overlay(Theme.stroke) }
-                    FurnitureRow(item: item, onEdit: { editingFurniture = item }) { include in
-                        room.setFurniture(item.id, include: include, areaM2: item.isAreaMeasured ? item.paintAreaM2 : nil)
-                    }
+                    FurnitureRow(item: item) { editingFurniture = item }
                 }
             }
         }
@@ -210,7 +213,8 @@ private struct Hero: View {
                         .font(.title.weight(.bold))
                         .foregroundStyle(.secondary)
                 }
-                Text("of wall to paint · \(Units.squareMetres(summary.wallGrossM2)) less \(Units.squareMetres(summary.openingsM2)) of doors and windows")
+                Text("of wall to paint · \(Units.squareMetres(summary.wallGrossM2)) less \(Units.squareMetres(summary.openingsM2)) of doors and windows"
+                     + (summary.builtInCoveredM2 > 0 ? " and \(Units.squareMetres(summary.builtInCoveredM2)) behind built-ins" : ""))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -266,6 +270,7 @@ private struct ListCard<Content: View>: View {
 private struct WallRow: View {
     let wall: Surface
     let openings: [Surface]
+    var builtIns: [FurnitureItem] = []
 
     var body: some View {
         HStack(alignment: .center, spacing: 14) {
@@ -275,8 +280,9 @@ private struct WallRow: View {
                     .font(.headline)
                     .monospacedDigit()
                     .foregroundStyle(.white)
-                if !openings.isEmpty {
-                    Text("less " + openings.map(\.label).joined(separator: ", ") + " · \(Units.squareMetres(wall.openingsM2))")
+                if !openings.isEmpty || !builtIns.isEmpty {
+                    Text("less " + (openings.map(\.label) + builtIns.map(\.label)).joined(separator: ", ")
+                         + " · \(Units.squareMetres(wall.openingsM2 + wall.coveredM2))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -370,7 +376,6 @@ private struct FlagPills: View {
 private struct FurnitureRow: View {
     let item: FurnitureItem
     let onEdit: () -> Void
-    let onToggle: (Bool) -> Void
 
     private var symbol: String {
         switch item.category {
@@ -385,50 +390,50 @@ private struct FurnitureRow: View {
         }
     }
 
+    private var active: Bool { item.isPainted || item.isBuiltIn }
+
     var body: some View {
-        HStack(spacing: 14) {
-            Button(action: onEdit) {
-                HStack(spacing: 14) {
-                    Image(systemName: symbol)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(item.isPainted ? Color.white : Color.secondary)
-                        .frame(width: 36, height: 36)
-                        .background {
+        Button(action: onEdit) {
+            HStack(spacing: 14) {
+                Image(systemName: symbol)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(active ? Color.white : Color.secondary)
+                    .frame(width: 36, height: 36)
+                    .background {
+                        if active {
+                            Circle().fill(Theme.gradient)
+                        } else {
+                            Circle().fill(Color.white.opacity(0.08))
+                        }
+                    }
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(item.label)
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                    Text(String(format: "%.2f × %.2f × %.2f m", item.widthM, item.heightM, item.depthM))
+                        .font(.caption)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                    if active {
+                        HStack(spacing: 6) {
+                            if item.isBuiltIn {
+                                Pill(text: "Built in · \(Units.squareMetres(item.coveredWallM2)) of wall skipped", color: Theme.window)
+                            }
                             if item.isPainted {
-                                Circle().fill(Theme.gradient)
-                            } else {
-                                Circle().fill(Color.white.opacity(0.08))
+                                Pill(text: "Painting · \(Units.squareMetres(item.paintAreaM2))", color: Theme.accent)
                             }
                         }
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(item.label)
-                            .font(.headline)
-                            .foregroundStyle(.white)
-                        Text(String(format: "%.2f × %.2f × %.2f m", item.widthM, item.heightM, item.depthM))
-                            .font(.caption)
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer(minLength: 8)
-                    VStack(alignment: .trailing, spacing: 0) {
-                        Text(String(format: "%.1f", item.paintAreaM2))
-                            .font(.number(20))
-                            .monospacedDigit()
-                            .foregroundStyle(item.isPainted ? Color.white : Color.secondary)
-                        Text(item.isAreaMeasured ? "m² measured" : "m² est.")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.secondary)
                     }
                 }
-                .contentShape(Rectangle())
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.tertiary)
             }
-            .buttonStyle(PressableStyle())
-
-            Toggle("Paint \(item.label)", isOn: Binding(get: { item.isPainted }, set: onToggle))
-                .labelsHidden()
-                .tint(Theme.accent)
+            .contentShape(Rectangle())
+            .padding(.vertical, 4)
         }
-        .padding(.vertical, 4)
+        .buttonStyle(PressableStyle())
     }
 }
 

@@ -376,6 +376,21 @@ final class AccuracyTests: XCTestCase {
         XCTAssertTrue(flagged(rack(u: 0.3)))                       // right across the doorway
     }
 
+    func testDoorReachingCeilingGetsHeightCheck() {
+        // From a real scan: a 2.40 m door read as 2.60 m in a 2.70 m room.
+        let ws = walls(around: rectangle(width: 4.44, depth: 3.36, yaw: 0, offset: .zero), height: 2.70)
+        let tooTall = opening(.door, on: ws[1], u: 0.3, bottom: 0, width: 0.88, height: 2.60)
+        let real = opening(.door, on: ws[3], u: 0.3, bottom: 0, width: 0.88, height: 2.40)
+        var room = Room(name: "Bedroom", geometry: ScanGeometry(walls: ws, doors: [tooTall, real]))
+        XCTAssertTrue(room.measure().surface(tooTall.id)!.flags.contains(.nearCeiling))
+        XCTAssertFalse(room.measure().surface(real.id)!.flags.contains(.nearCeiling))
+
+        room.setOverride(SurfaceOverride(surfaceId: tooTall.id, heightM: 2.40), for: tooTall.id)
+        let fixed = room.measure().surface(tooTall.id)!
+        XCTAssertFalse(fixed.flags.contains(.nearCeiling))
+        XCTAssertEqual(fixed.grossAreaM2, 0.88 * 2.40, accuracy: 1e-9)
+    }
+
     func testRoomsSavedBeforeFurnitureStillLoad() throws {
         // room.json written by the first build had no "objects" key or override kind/removed.
         var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(Room.sample)) as! [String: Any]

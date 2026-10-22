@@ -1,16 +1,18 @@
 import Foundation
 
-/// The painter's choice for one piece of furniture: paint it, and optionally a
-/// measured area instead of the estimate.
+/// The painter's choices for one piece of furniture: paint it (optionally with a
+/// measured area), and whether it's built in so the wall behind isn't painted.
 public struct FurniturePaint: Codable, Equatable, Sendable {
     public var objectId: UUID
     public var include: Bool
     public var areaM2: Double?
+    public var builtIn: Bool?
 
-    public init(objectId: UUID, include: Bool, areaM2: Double? = nil) {
+    public init(objectId: UUID, include: Bool, areaM2: Double? = nil, builtIn: Bool? = nil) {
         self.objectId = objectId
         self.include = include
         self.areaM2 = areaM2
+        self.builtIn = builtIn
     }
 }
 
@@ -32,6 +34,11 @@ public struct FurnitureItem: Identifiable, Equatable, Sendable {
     public var facesAgainstWall: Int
     public var isPainted: Bool
     public var isAreaMeasured: Bool
+    /// Built-in joinery: the wall behind it is taken off the paint area.
+    public var isBuiltIn: Bool
+    /// Walls it covers when built in, and how much of them.
+    public var coveredWallIds: [UUID]
+    public var coveredWallM2: Double
 }
 
 enum FurnitureEstimator {
@@ -60,7 +67,8 @@ enum FurnitureEstimator {
         }
     }
 
-    static func items(_ objects: [ScannedObject], walls: [ScannedSurface], choices: [FurniturePaint]) -> [FurnitureItem] {
+    static func items(_ objects: [ScannedObject], walls: [ScannedSurface], choices: [FurniturePaint],
+                      covers: [UUID: (walls: [UUID], area: Double)] = [:]) -> [FurnitureItem] {
         let choiceById = Dictionary(choices.map { ($0.objectId, $0) }, uniquingKeysWith: { _, last in last })
         var counters: [String: Int] = [:]
         return objects.filter { !appliances.contains($0.category) }.map { o in
@@ -75,7 +83,10 @@ enum FurnitureEstimator {
                 paintAreaM2: choice?.areaM2 ?? area,
                 facesAgainstWall: against,
                 isPainted: choice?.include ?? false,
-                isAreaMeasured: choice?.areaM2 != nil
+                isAreaMeasured: choice?.areaM2 != nil,
+                isBuiltIn: choice?.builtIn ?? false,
+                coveredWallIds: covers[o.id]?.walls ?? [],
+                coveredWallM2: covers[o.id]?.area ?? 0
             )
         }
     }

@@ -17,6 +17,8 @@ public enum MeasurementEngine {
     public static let cornerTolerance = 0.3
     /// Wall heights within this of the room's median are treated as noise and snapped to it.
     public static let heightConsensusTolerance = 0.03
+    /// A door whose top is closer than this to the ceiling gets a height check.
+    static let doorCeilingGap = 0.15
     /// Furniture "in front of" a door or window is within this of its wall…
     static let furnitureDepth = 0.5
     /// …and covers at least this share of its width.
@@ -55,6 +57,9 @@ public enum MeasurementEngine {
         let heights = consensusHeights(walls, sloped: sloped)
         let openingsIn = (g.doors + g.windows + g.openings).filter(kept).map(retyped)
 
+        let builtInIds = Set(choices.filter { $0.builtIn == true }.map(\.objectId))
+        let builtIns = g.objects.filter { builtInIds.contains($0.id) && !FurnitureEstimator.appliances.contains($0.category) }
+
         let frames = walls.indices.map { i in
             WallFrame(
                 wall: walls[i], index: i,
@@ -84,6 +89,18 @@ public enum MeasurementEngine {
             return ai != bi ? ai < bi : a.u < b.u
         }
 
+        // Wall hidden behind built-in cupboards, per wall, in each wall's face coordinates.
+        var coverRects = [[Rect2]](repeating: [], count: frames.count)
+        var covers: [UUID: (walls: [UUID], area: Double)] = [:]
+        for o in builtIns {
+            for frame in frames {
+                guard let rect = cover(o, on: frame) else { continue }
+                coverRects[frame.index].append(rect)
+                covers[o.id, default: ([], 0)].walls.append(frame.wall.id)
+                covers[o.id, default: ([], 0)].area += rect.area
+            }
+        }
+
         var surfaces: [Surface] = []
         var plan = FloorPlan()
         var summary = RoomSummary()
@@ -109,12 +126,16 @@ public enum MeasurementEngine {
             // A tape-measured height replaces the guess, so the warning no longer applies.
             if heights[i].fromRoom, overrideById[wall.id]?.heightM == nil { flags.append(.heightFromRoom) }
 
-            let openingsArea = Geometry.unionArea(placed.filter { $0.frame?.index == i }.compactMap(\.clipped))
+            let openingRects = placed.filter { $0.frame?.index == i }.compactMap(\.clipped)
+            let openingsArea = Geometry.unionArea(openingRects)
+            // Counted once where a built-in overlaps a door or window.
+            let coveredArea = coverRects[i].isEmpty ? 0 : Geometry.unionArea(openingRects + coverRects[i]) - openingsArea
             surfaces.append(Surface(
                 id: wall.id, kind: .wall, label: "Wall \(frame.shortLabel)",
                 widthM: frame.width, heightM: frame.height,
                 grossAreaM2: baseArea * frame.scaleX * frame.scaleY,
                 openingsM2: openingsArea,
+                coveredM2: coveredArea,
                 scannedWidthM: frame.lidarWidth, scannedHeightM: frame.lidarHeight,
                 flags: flags
             ))
@@ -140,6 +161,10 @@ public enum MeasurementEngine {
             if overrideById[p.surface.id]?.kind != nil { flags.append(.typeCorrected) }
             if p.surface.confidence == .low { flags.append(.lowConfidence) }
             if p.frame == nil { flags.append(.notOnAWall) }
+            if kind == .door, !p.tapeMeasured, let frame = p.frame, let clipped = p.clipped,
+               frame.rect.maxY - clipped.maxY < doorCeilingGap {
+                flags.append(.nearCeiling)
+            }
             let bottom = p.surface.center.y - p.surface.height / 2
             if g.objects.contains(where: { $0.blocks(p.surface, width: p.surface.width, bottom: bottom, top: bottom + p.surface.height,
                                                       depth: furnitureDepth, coverage: furnitureCoverage) }) {
@@ -185,9 +210,11 @@ public enum MeasurementEngine {
             ))
         }
         plan.openEnds = graph.openEnds.map(\.point)
-        let furniture = FurnitureEstimator.items(g.objects, walls: walls, choices: choices)
+        let furniture = FurnitureEstimator.items(g.objects, walls: walls, choices: choices, covers: covers)
         let painted = Set(furniture.filter(\.isPainted).map(\.id))
-        plan.objects = g.objects.map { PlanObject(id: $0.id, corners: $0.planCorners, isPainted: painted.contains($0.id)) }
+        plan.objects = g.objects.map {
+            PlanObject(id: $0.id, corners: $0.planCorners, isPainted: painted.contains($0.id), isBuiltIn: builtInIds.contains($0.id))
+        }
         summary.furniturePaintM2 = furniture.filter(\.isPainted).map(\.paintAreaM2).reduce(0, +)
         summary.furniturePaintCount = painted.count
 
@@ -201,6 +228,7 @@ public enum MeasurementEngine {
         summary.wallGrossM2 = wallSurfaces.map(\.grossAreaM2).reduce(0, +)
         summary.openingsM2 = wallSurfaces.map(\.openingsM2).reduce(0, +)
         summary.wallPaintM2 = wallSurfaces.map(\.paintAreaM2).reduce(0, +)
+        summary.builtInCoveredM2 = wallSurfaces.map(\.coveredM2).reduce(0, +)
         summary.perimeterM = wallSurfaces.map(\.widthM).reduce(0, +)
         summary.ceilingHeightM = Geometry.median(wallHeights) ?? 0
         summary.minWallHeightM = wallHeights.min() ?? 0
@@ -210,10 +238,30 @@ public enum MeasurementEngine {
             let floorLevel = p.surface.kind == .door || clipped.minY - frame.rect.minY < floorLevelTolerance
             return floorLevel ? total + clipped.width : total
         }
-        summary.skirtingM = max(0, summary.perimeterM - doorways)
+        // Floor-standing built-ins hide the skirting behind them too.
+        let hiddenSkirting = frames.reduce(0.0) { total, frame in
+            total + coverRects[frame.index].filter { $0.minY - frame.rect.minY < floorLevelTolerance }.map(\.width).reduce(0, +)
+        }
+        summary.skirtingM = max(0, summary.perimeterM - doorways - hiddenSkirting)
         summary.gapCount = graph.openEnds.count
 
         return RoomMeasurements(surfaces: surfaces, summary: summary, plan: plan, furniture: furniture)
+    }
+
+    /// The patch of a wall a built-in covers, in the wall's face coordinates, or nil
+    /// if it doesn't stand against that wall.
+    static func cover(_ o: ScannedObject, on frame: WallFrame) -> Rect2? {
+        let n = frame.wall.normal.normalized
+        let ox = Vec3(o.xAxis.x, 0, o.xAxis.z).normalized, oz = Vec3(o.zAxis.x, 0, o.zAxis.z).normalized
+        guard max(abs(ox.dot(n)), abs(oz.dot(n))) > 0.9 else { return nil }
+        let corners = o.planCorners
+        let gap = corners.map { abs((Vec3($0.x, frame.center.y, $0.y) - frame.center).dot(n)) }.min() ?? .infinity
+        guard gap <= FurnitureEstimator.wallContact else { return nil }
+        let bottom = o.center.y - o.dimensions.y / 2, top = o.center.y + o.dimensions.y / 2
+        let pts = corners.flatMap { [frame.local(Vec3($0.x, bottom, $0.y)), frame.local(Vec3($0.x, top, $0.y))] }
+        let rect = Rect2(minX: pts.map(\.x).min()!, minY: pts.map(\.y).min()!,
+                         maxX: pts.map(\.x).max()!, maxY: pts.map(\.y).max()!)
+        return rect.intersection(frame.rect)
     }
 
     // MARK: Refinements

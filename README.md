@@ -45,7 +45,10 @@ which accepts this app's `room.json` or a raw RoomPlan `CapturedRoom` JSON
   detections. Furniture is drawn on the floor plan.
 - **Furniture**: anything RoomPlan recognises (appliances aside) can be switched on for
   painting. Area is estimated from its outline (front, exposed sides and top; faces against a
-  wall are skipped) or typed in, and totalled separately from the walls.
+  wall are skipped) or typed in, and totalled separately from the walls. Marking a piece as
+  **built in** takes the wall and skirting behind it off the paint area.
+- **Doors** reaching within 15 cm of the ceiling are flagged for a height check: RoomPlan
+  sometimes takes in the strip of wall above the frame.
 - **Openings**: doors/windows are attached to their wall (RoomPlan's parent id, else nearest
   plane), clipped to the wall, and overlaps are counted once.
 - **Sloped and curved walls** use their real outline or arc length, not width × height.

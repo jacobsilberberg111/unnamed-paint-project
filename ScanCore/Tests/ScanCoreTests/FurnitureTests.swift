@@ -76,6 +76,63 @@ final class FurnitureTests: XCTestCase {
         XCTAssertTrue(r.furniture.isEmpty)
     }
 
+    func testBuiltInCupboardHidesWallAndSkirting() {
+        // Floor-to-ceiling cupboards, 1.5 m wide, against the north wall.
+        let cupboards = object("storage", w: 1.5, h: 2.4, d: 0.6, at: Vec2(0.5, -1.5 + 0.3))
+        let ws = room()
+        var r = Room(name: "Bedroom", geometry: ScanGeometry(walls: ws, objects: [cupboards]))
+        let before = r.measure()
+
+        r.updateFurniture(cupboards.id) { $0.builtIn = true }
+        let after = r.measure()
+        let north = after.surface(ws[0].id)!
+        XCTAssertEqual(north.coveredM2, 1.5 * 2.4, accuracy: 1e-9)
+        XCTAssertEqual(after.summary.wallPaintM2, before.summary.wallPaintM2 - 3.6, accuracy: 1e-9)
+        XCTAssertEqual(after.summary.builtInCoveredM2, 3.6, accuracy: 1e-9)
+        XCTAssertEqual(after.summary.skirtingM, before.summary.skirtingM - 1.5, accuracy: 1e-9)
+        XCTAssertEqual(after.furniture[0].coveredWallIds, [ws[0].id])
+        XCTAssertTrue(after.furniture[0].isBuiltIn)
+        XCTAssertFalse(after.furniture[0].isPainted) // built in isn't the same as painting it
+        XCTAssertTrue(after.plan.objects[0].isBuiltIn)
+
+        r.updateFurniture(cupboards.id) { $0.builtIn = false }
+        XCTAssertEqual(r.measure().summary.wallPaintM2, before.summary.wallPaintM2, accuracy: 1e-9)
+        XCTAssertTrue(r.furniture.isEmpty)
+    }
+
+    func testCornerBuiltInCoversBothWalls() {
+        // 1.0 wide, 0.6 deep, 2.0 high, in the north-east corner.
+        let unit = object("storage", w: 1.0, h: 2.0, d: 0.6, at: Vec2(2 - 0.5, -1.5 + 0.3))
+        let ws = room()
+        var r = Room(name: "T", geometry: ScanGeometry(walls: ws, objects: [unit]))
+        r.updateFurniture(unit.id) { $0.builtIn = true }
+        let m = r.measure()
+        XCTAssertEqual(m.surface(ws[0].id)!.coveredM2, 1.0 * 2.0, accuracy: 1e-9) // north: its back
+        XCTAssertEqual(m.surface(ws[1].id)!.coveredM2, 0.6 * 2.0, accuracy: 1e-9) // east: its side
+        XCTAssertEqual(m.furniture[0].coveredWallM2, 3.2, accuracy: 1e-9)
+    }
+
+    func testBuiltInOverlappingDoorIsCountedOnce() {
+        let ws = room()
+        let north = ws[0]
+        let door = ScannedSurface(kind: .door, dimensions: Vec3(0.8, 2.0, 0), center: Vec3(-1.0, 1.0, -1.5),
+                                  xAxis: north.xAxis, yAxis: up, normal: north.normal, parentId: north.id)
+        // Door spans x -1.4…-0.6; cupboard spans -0.8…0.2, so they overlap by 0.2 m.
+        let unit = object("storage", w: 1.0, h: 2.0, d: 0.5, at: Vec2(-0.3, -1.5 + 0.25))
+        var r = Room(name: "T", geometry: ScanGeometry(walls: ws, doors: [door], objects: [unit]))
+        r.updateFurniture(unit.id) { $0.builtIn = true }
+        let wall = r.measure().surface(north.id)!
+        XCTAssertEqual(wall.openingsM2, 1.6, accuracy: 1e-9)
+        XCTAssertEqual(wall.coveredM2, 2.0 - 0.2 * 2.0, accuracy: 1e-9)
+    }
+
+    func testFreestandingFurnitureCannotHideWall() {
+        let desk = object("table", w: 1.4, h: 0.75, d: 0.7, at: Vec2(0, 0))
+        var r = Room(name: "T", geometry: ScanGeometry(walls: room(), objects: [desk]))
+        r.updateFurniture(desk.id) { $0.builtIn = true }
+        XCTAssertEqual(r.measure().summary.builtInCoveredM2, 0)
+    }
+
     func testRoomsSavedBeforeFurniturePaintingStillLoad() throws {
         var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(Room.sample)) as! [String: Any]
         json.removeValue(forKey: "furniture")

@@ -20,6 +20,9 @@ public enum SurfaceFlag: String, Codable, Sendable {
     /// A wall under 30 cm long: often a sliver RoomPlan adds at a corner. Remove it
     /// if the wall doesn't really step there.
     case tinyWall
+    /// A door whose top comes within a few cm of the ceiling. RoomPlan sometimes
+    /// takes in the strip of wall above the frame, making the door too tall.
+    case nearCeiling
     /// A door or window with furniture in front of it. Clutter is the most common
     /// cause of false detections, so it's worth a glance.
     case nearFurniture
@@ -42,6 +45,7 @@ public struct Surface: Codable, Identifiable, Equatable, Sendable {
     public var heightM: Double
     public var grossAreaM2: Double
     public var openingsM2: Double      // doors + windows on this wall, overlaps counted once
+    public var coveredM2: Double       // further wall hidden behind built-ins, not painted
     public var wallId: UUID?           // doors/windows/openings: the wall they sit in
     public var scannedWidthM: Double   // best LiDAR value, before any tape correction
     public var scannedHeightM: Double
@@ -49,7 +53,7 @@ public struct Surface: Codable, Identifiable, Equatable, Sendable {
 
     public init(
         id: UUID, kind: SurfaceKind, label: String,
-        widthM: Double, heightM: Double, grossAreaM2: Double, openingsM2: Double = 0,
+        widthM: Double, heightM: Double, grossAreaM2: Double, openingsM2: Double = 0, coveredM2: Double = 0,
         wallId: UUID? = nil, scannedWidthM: Double? = nil, scannedHeightM: Double? = nil,
         flags: [SurfaceFlag] = []
     ) {
@@ -60,13 +64,14 @@ public struct Surface: Codable, Identifiable, Equatable, Sendable {
         self.heightM = heightM
         self.grossAreaM2 = grossAreaM2
         self.openingsM2 = openingsM2
+        self.coveredM2 = coveredM2
         self.wallId = wallId
         self.scannedWidthM = scannedWidthM ?? widthM
         self.scannedHeightM = scannedHeightM ?? heightM
         self.flags = flags
     }
 
-    public var paintAreaM2: Double { max(0, grossAreaM2 - openingsM2) }
+    public var paintAreaM2: Double { max(0, grossAreaM2 - openingsM2 - coveredM2) }
 }
 
 /// The painter's correction to one surface. nil fields keep what the scan said.
@@ -141,9 +146,18 @@ public struct Room: Codable, Identifiable, Equatable, Sendable {
 
     /// Paint a piece of furniture or not, optionally with a measured area (nil = estimate).
     public mutating func setFurniture(_ objectId: UUID, include: Bool, areaM2: Double? = nil) {
+        updateFurniture(objectId) {
+            $0.include = include
+            $0.areaM2 = areaM2
+        }
+    }
+
+    public mutating func updateFurniture(_ objectId: UUID, _ change: (inout FurniturePaint) -> Void) {
+        var choice = furniture.first { $0.objectId == objectId } ?? FurniturePaint(objectId: objectId, include: false)
+        change(&choice)
         furniture.removeAll { $0.objectId == objectId }
-        if include || areaM2 != nil {
-            furniture.append(FurniturePaint(objectId: objectId, include: include, areaM2: areaM2))
+        if choice.include || choice.areaM2 != nil || choice.builtIn == true {
+            furniture.append(choice)
         }
     }
 
@@ -209,6 +223,8 @@ public struct RoomSummary: Codable, Equatable, Sendable {
     /// work, usually priced differently.
     public var furniturePaintM2 = 0.0
     public var furniturePaintCount = 0
+    /// Wall hidden behind built-in cupboards, taken off the paint area.
+    public var builtInCoveredM2 = 0.0
 
     public init() {}
 
@@ -249,6 +265,7 @@ public struct PlanObject: Identifiable, Equatable, Sendable {
     public var id: UUID
     public var corners: [Vec2]
     public var isPainted: Bool
+    public var isBuiltIn: Bool
 }
 
 public struct RoomMeasurements: Equatable, Sendable {

@@ -58,6 +58,9 @@ struct FloorPlanView: View {
             if object.isPainted {
                 context.fill(footprint, with: .color(Theme.accent.opacity(0.35)))
                 context.stroke(footprint, with: .color(Theme.accent), lineWidth: 1.5)
+            } else if object.isBuiltIn {
+                context.fill(footprint, with: .color(Theme.window.opacity(0.22)))
+                context.stroke(footprint, with: .color(Theme.window.opacity(0.8)), lineWidth: 1.5)
             } else {
                 context.fill(footprint, with: .color(.white.opacity(0.07)))
                 context.stroke(footprint, with: .color(.white.opacity(0.18)), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))

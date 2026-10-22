@@ -15,6 +15,7 @@ extension SurfaceFlag {
         case .heightFromRoom: return "Short scan: used room height"
         case .nearFurniture: return "Behind furniture: check it's real"
         case .tinyWall: return "Tiny wall: remove if not real"
+        case .nearCeiling: return "Reaches the ceiling: check its height"
         case .typeCorrected: return "Type corrected"
         case .curved: return "Curved"
         case .sloped: return "Sloped / not rectangular"
@@ -25,7 +26,7 @@ extension SurfaceFlag {
     /// Flags that mean the number may be off and is worth a tape check.
     public var isWarning: Bool {
         switch self {
-        case .lowConfidence, .heightFromRoom, .nearFurniture, .tinyWall, .notOnAWall: return true
+        case .lowConfidence, .heightFromRoom, .nearFurniture, .tinyWall, .nearCeiling, .notOnAWall: return true
         case .tapeMeasured, .typeCorrected, .curved, .sloped: return false
         }
     }
@@ -54,6 +55,9 @@ extension RoomMeasurements {
         lines.append("Perimeter: \(Units.metres(s.perimeterM)) · Ceiling height: \(Units.metres(s.ceilingHeightM))")
         lines.append("Skirting: \(Units.metres(s.skirtingM)) · Door frames: \(Units.metres(s.doorTrimM)) · Window frames: \(Units.metres(s.windowTrimM))")
         lines.append("\(s.wallCount) walls, \(s.doorCount) doors, \(s.windowCount) windows, \(s.openingCount) openings")
+        if s.builtInCoveredM2 > 0 {
+            lines.append("Not painted behind built-ins: \(Units.squareMetres(s.builtInCoveredM2))")
+        }
         if s.furniturePaintCount > 0 {
             let names = furniture.filter(\.isPainted).map(\.label).joined(separator: ", ")
             lines.append("Furniture to paint: \(Units.squareMetres(s.furniturePaintM2)) (\(names))")
@@ -62,7 +66,7 @@ extension RoomMeasurements {
         lines.append("")
         for w in walls {
             var line = "\(w.label): \(Units.size(w.widthM, w.heightM)), \(Units.squareMetres(w.grossAreaM2))"
-            if w.openingsM2 > 0 { line += " less \(Units.squareMetres(w.openingsM2))" }
+            if w.openingsM2 + w.coveredM2 > 0 { line += " less \(Units.squareMetres(w.openingsM2 + w.coveredM2))" }
             line += " = \(Units.squareMetres(w.paintAreaM2))"
             if !w.flags.isEmpty { line += " [\(w.flags.map(\.description).joined(separator: ", "))]" }
             lines.append(line)
