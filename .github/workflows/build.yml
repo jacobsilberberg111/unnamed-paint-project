@@ -45,6 +45,15 @@ jobs:
             -quiet \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
 
+      # Ad-hoc sign so the binary carries a code signature that sideloaders
+      # (iloader, Sideloadly, AltStore) can replace; fully unsigned builds fail
+      # on device with "integrity could not be verified".
+      - name: Ad-hoc sign
+        run: |
+          APP="$RUNNER_TEMP/ScanToQuote.xcarchive/Products/Applications/ScanToQuote.app"
+          codesign --force --deep --sign - "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
       - name: Package IPA
         run: |
           mkdir -p "$RUNNER_TEMP/ipa/Payload"
