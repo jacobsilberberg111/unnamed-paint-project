@@ -1,7 +1,7 @@
 import ScanCore
 import SwiftUI
 
-/// Full-screen RoomPlan view with the guidance HUD on top.
+/// Full-screen RoomPlan view with the guidance HUD floating on top.
 struct ScanView: View {
     let scan: ScanSession
     let onCancel: () -> Void
@@ -16,12 +16,21 @@ struct ScanView: View {
             RoomCaptureContainer(scan: scan)
                 .ignoresSafeArea()
 
+            // Darken the edges so the HUD reads over a bright room.
+            LinearGradient(colors: [.black.opacity(0.45), .clear, .clear, .black.opacity(0.55)],
+                           startPoint: .top, endPoint: .bottom)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+
             if scan.phase == .scanning {
                 hud
+                    .transition(.opacity)
             } else {
                 ProcessingOverlay()
+                    .transition(.scale(scale: 0.9).combined(with: .opacity))
             }
         }
+        .animation(.smooth, value: scan.phase)
         .onAppear { UIApplication.shared.isIdleTimerDisabled = true }
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
         .sensoryFeedback(.impact(weight: .light), trigger: coverage.wallCount)
@@ -35,19 +44,20 @@ struct ScanView: View {
     }
 
     private var hud: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 14) {
             HStack(alignment: .top, spacing: 12) {
                 Button(action: onCancel) {
                     Image(systemName: "xmark")
-                        .font(.title2.weight(.semibold))
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(.white)
                         .frame(width: 56, height: 56)
+                        .glassPanel(cornerRadius: 28)
                 }
-                .buttonStyle(.plain)
-                .background(.regularMaterial, in: Circle())
+                .buttonStyle(PressableStyle())
                 .accessibilityLabel("Cancel scan")
 
                 GuidanceBanner(instruction: scan.instruction, guidance: coverage.next)
-                    .frame(maxWidth: 640)
+                    .frame(maxWidth: 680)
                     .frame(maxWidth: .infinity)
 
                 Color.clear.frame(width: 56, height: 56)
@@ -60,25 +70,25 @@ struct ScanView: View {
                     ScanChecklist(coverage: coverage)
                         .frame(width: 300)
                     Spacer()
-                    doneButton.frame(width: 260)
+                    doneButton.frame(width: 280)
                     Spacer()
-                    miniMap.frame(width: 320, height: 260)
+                    miniMap.frame(width: 340, height: 280)
                 }
             } else {
                 HStack(alignment: .bottom, spacing: 12) {
                     ScanChecklist(coverage: coverage)
-                    miniMap.frame(width: 170, height: 170)
+                    miniMap.frame(width: 170, height: 190)
                 }
                 doneButton
             }
         }
-        .padding()
+        .padding(20)
     }
 
     private var miniMap: some View {
         FloorPlanView(plan: coverage.plan, pose: scan.pose, showDimensions: sizeClass == .regular)
-            .padding(8)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
+            .padding(6)
+            .glassPanel()
     }
 
     private var doneButton: some View {
@@ -89,13 +99,12 @@ struct ScanView: View {
                 confirmFinish = true
             }
         } label: {
-            Label("Done", systemImage: coverage.isReadyToFinish ? "checkmark.circle.fill" : "checkmark")
-                .font(.title2.weight(.bold))
-                .frame(maxWidth: .infinity, minHeight: 64)
+            Label(coverage.isReadyToFinish ? "Done" : "Finish", systemImage: coverage.isReadyToFinish ? "checkmark.circle.fill" : "checkmark")
+                .contentTransition(.symbolEffect(.replace))
         }
-        .buttonStyle(.borderedProminent)
-        .tint(coverage.isReadyToFinish ? Color.green : Color.accentColor)
+        .buttonStyle(GradientButtonStyle(gradient: coverage.isReadyToFinish ? Theme.doneGradient : Theme.gradient))
         .disabled(coverage.wallCount == 0)
+        .animation(.smooth, value: coverage.isReadyToFinish)
     }
 }
 
@@ -109,23 +118,29 @@ struct GuidanceBanner: View {
         let title = coaching ? instruction.title : guidance.title
         let detail = coaching ? instruction.detail : guidance.detail
         let symbol = coaching ? instruction.symbol : guidance.symbol
-        let tint: Color = coaching ? .orange : guidance.tint
+        let tint: Color = coaching ? Theme.warn : guidance.tint
 
-        HStack(alignment: .top, spacing: 14) {
+        HStack(alignment: .center, spacing: 16) {
             Image(systemName: symbol)
-                .font(.title.weight(.semibold))
-                .foregroundStyle(tint)
-                .frame(width: 44)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.title2.weight(.bold))
-                Text(detail).font(.body).foregroundStyle(.secondary)
+                .font(.system(size: 24, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 52, height: 52)
+                .background(tint.gradient, in: Circle())
+                .contentTransition(.symbolEffect(.replace))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                Text(detail)
+                    .font(.callout)
+                    .foregroundStyle(.white.opacity(0.75))
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
         }
-        .padding(16)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
-        .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(tint.opacity(0.6), lineWidth: 2))
-        .animation(.easeInOut(duration: 0.2), value: title)
+        .padding(14)
+        .glassPanel(cornerRadius: 28, tint: tint)
+        .animation(.smooth, value: title)
     }
 }
 
@@ -143,10 +158,10 @@ extension ScanGuidance {
 
     var tint: Color {
         switch self {
-        case .complete: return .green
-        case .closeGap: return .red
-        case .ceilingLine, .rescan: return .orange
-        case .findFirstWall, .keepGoing: return .accentColor
+        case .complete: return Theme.good
+        case .closeGap: return Theme.bad
+        case .ceilingLine, .rescan: return Theme.warn
+        case .findFirstWall, .keepGoing: return Theme.accent
         }
     }
 }
@@ -154,47 +169,90 @@ extension ScanGuidance {
 struct ScanChecklist: View {
     let coverage: CoverageReport
 
+    private var checks: [Bool] {
+        [coverage.wallCount >= 3, coverage.isClosed,
+         coverage.wallCount >= 3 && coverage.shortWalls.isEmpty,
+         coverage.doorCount + coverage.openingCount > 0]
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            row("Walls", "\(coverage.wallCount)", done: coverage.wallCount >= 3)
+        let done = checks.filter { $0 }.count
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                ProgressRing(progress: Double(done) / Double(checks.count))
+                    .frame(width: 34, height: 34)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Coverage").font(.caption.weight(.bold)).textCase(.uppercase).tracking(1).foregroundStyle(.white.opacity(0.6))
+                    Text("\(done) of \(checks.count)").font(.number(18)).foregroundStyle(.white)
+                }
+            }
+            row("Walls", "\(coverage.wallCount)", done: checks[0])
             row("Corners joined",
                 coverage.wallCount < 3 ? "—" : coverage.openEndCount == 0 ? "All" : "\(coverage.openEndCount) loose",
-                done: coverage.isClosed)
+                done: checks[1])
             row("Wall heights",
                 coverage.wallCount < 3 ? "—" : coverage.shortWalls.isEmpty ? "Even" : "\(coverage.shortWalls.joined(separator: ", ")) short",
-                done: coverage.wallCount >= 3 && coverage.shortWalls.isEmpty)
-            row("Doors", "\(coverage.doorCount)", done: coverage.doorCount + coverage.openingCount > 0)
+                done: checks[2])
+            row("Doors", "\(coverage.doorCount)", done: checks[3])
             row("Windows", "\(coverage.windowCount)", done: nil)
         }
-        .font(.headline)
+        .font(.subheadline.weight(.semibold))
+        .foregroundStyle(.white)
         .padding(16)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
+        .glassPanel()
+        .animation(.smooth, value: done)
     }
 
     private func row(_ title: String, _ value: String, done: Bool?) -> some View {
         HStack(spacing: 10) {
             Image(systemName: done == true ? "checkmark.circle.fill" : done == false ? "circle.dashed" : "circle.fill")
-                .foregroundStyle(done == true ? Color.green : Color.secondary)
+                .foregroundStyle(done == true ? Theme.good : Color.white.opacity(0.4))
                 .imageScale(done == nil ? .small : .medium)
+                .contentTransition(.symbolEffect(.replace))
             Text(title)
             Spacer(minLength: 8)
             Text(value)
                 .monospacedDigit()
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.white.opacity(0.7))
                 .lineLimit(1)
         }
     }
 }
 
-struct ProcessingOverlay: View {
+struct ProgressRing: View {
+    let progress: Double
+
     var body: some View {
-        VStack(spacing: 16) {
-            ProgressView().controlSize(.large)
-            Text("Building your room…").font(.title2.weight(.semibold))
-            Text("Squaring up walls and measuring every surface.")
-                .foregroundStyle(.secondary)
+        ZStack {
+            Circle().stroke(.white.opacity(0.15), lineWidth: 5)
+            Circle()
+                .trim(from: 0, to: max(0.001, progress))
+                .stroke(progress >= 1 ? Theme.doneGradient : Theme.gradient, style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                .rotationEffect(.degrees(-90))
         }
-        .padding(32)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24))
+        .animation(.smooth, value: progress)
+    }
+}
+
+struct ProcessingOverlay: View {
+    @State private var spin = false
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Circle()
+                .trim(from: 0, to: 0.7)
+                .stroke(Theme.gradient, style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                .frame(width: 56, height: 56)
+                .rotationEffect(.degrees(spin ? 360 : 0))
+                .animation(.linear(duration: 1).repeatForever(autoreverses: false), value: spin)
+                .onAppear { spin = true }
+            Text("Building your room")
+                .font(.system(size: 24, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+            Text("Squaring up walls and measuring every surface.")
+                .foregroundStyle(.white.opacity(0.7))
+        }
+        .padding(36)
+        .glassPanel(cornerRadius: 32)
     }
 }

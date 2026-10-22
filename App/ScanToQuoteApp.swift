@@ -8,6 +8,8 @@ struct ScanToQuoteApp: App {
         WindowGroup {
             HomeView()
                 .environment(store)
+                .preferredColorScheme(.dark)
+                .tint(Theme.accent)
         }
     }
 }

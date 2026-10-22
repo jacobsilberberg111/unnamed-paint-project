@@ -63,45 +63,71 @@ struct ScanTipsView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 28) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Room name").font(.headline)
-                        TextField("e.g. Lounge (optional)", text: $roomName)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Before you scan")
+                            .font(.system(size: 38, weight: .heavy, design: .rounded))
+                        Text("Two minutes of walking gets every measurement.")
                             .font(.title3)
-                            .textFieldStyle(.roundedBorder)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Room name").sectionTitle()
+                        TextField("", text: $roomName, prompt: Text("e.g. Lounge (optional)").foregroundStyle(.white.opacity(0.35)))
+                            .font(.title3.weight(.semibold))
+                            .padding(.horizontal, 18)
+                            .frame(height: 56)
+                            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Theme.stroke))
                             .submitLabel(.done)
                     }
 
-                    VStack(alignment: .leading, spacing: 20) {
-                        ForEach(tips) { tip in
-                            HStack(alignment: .top, spacing: 16) {
-                                Image(systemName: tip.symbol)
-                                    .font(.title2)
-                                    .foregroundStyle(.tint)
-                                    .frame(width: 40)
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(tip.title).font(.title3.weight(.semibold))
-                                    Text(tip.detail).foregroundStyle(.secondary)
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 14)], spacing: 14) {
+                        ForEach(Array(tips.enumerated()), id: \.element.id) { index, tip in
+                            HStack(alignment: .top, spacing: 14) {
+                                ZStack(alignment: .topTrailing) {
+                                    Image(systemName: tip.symbol)
+                                        .font(.system(size: 20, weight: .semibold))
+                                        .foregroundStyle(.white)
+                                        .frame(width: 48, height: 48)
+                                        .background(Theme.gradient, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                    Text("\(index + 1)")
+                                        .font(.number(11, weight: .heavy))
+                                        .foregroundStyle(Theme.background)
+                                        .frame(width: 18, height: 18)
+                                        .background(.white, in: Circle())
+                                        .offset(x: 6, y: -6)
                                 }
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(tip.title).font(.headline)
+                                    Text(tip.detail)
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                Spacer(minLength: 0)
                             }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                            .card(padding: 16, cornerRadius: 20)
                         }
                     }
-
-                    Text("Mirrors and large glass can confuse the scanner. You can correct any wall with a tape measurement afterwards.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-
-                    Button(action: onStart) {
-                        Label("Start scanning", systemImage: "viewfinder")
-                            .font(.title2.weight(.semibold))
-                            .frame(maxWidth: .infinity, minHeight: 64)
-                    }
-                    .buttonStyle(.borderedProminent)
                 }
                 .padding(24)
-                .frame(maxWidth: 640)
+                .padding(.bottom, 100)
+                .frame(maxWidth: 900)
                 .frame(maxWidth: .infinity)
             }
-            .navigationTitle("Before you scan")
+            .scrollIndicators(.hidden)
+            .background(BackdropView())
+            .safeAreaInset(edge: .bottom) {
+                Button(action: onStart) {
+                    Label("Start scanning", systemImage: "viewfinder")
+                }
+                .buttonStyle(GradientButtonStyle())
+                .frame(maxWidth: 520)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 12)
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel", action: onCancel)
@@ -117,23 +143,27 @@ struct ScanFailedView: View {
     let onClose: () -> Void
 
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 18) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 56))
-                .foregroundStyle(.orange)
-            Text("The scan stopped").font(.title.bold())
+                .font(.system(size: 30, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 72, height: 72)
+                .background(Theme.warn.gradient, in: Circle())
+            Text("The scan stopped")
+                .font(.system(size: 30, weight: .heavy, design: .rounded))
             Text(message)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
-            HStack(spacing: 16) {
-                Button("Close", action: onClose)
-                    .buttonStyle(.bordered)
-                Button("Scan again", action: onRetry)
-                    .buttonStyle(.borderedProminent)
-            }
-            .controlSize(.large)
+            Button("Scan again", action: onRetry)
+                .buttonStyle(GradientButtonStyle())
+                .padding(.top, 8)
+            Button("Close", action: onClose)
+                .font(.headline)
+                .foregroundStyle(.secondary)
         }
         .padding(32)
-        .frame(maxWidth: 520)
+        .frame(maxWidth: 480)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(BackdropView())
     }
 }
