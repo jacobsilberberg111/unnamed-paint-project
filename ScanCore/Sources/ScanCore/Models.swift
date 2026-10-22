@@ -17,6 +17,9 @@ public enum SurfaceFlag: String, Codable, Sendable {
     /// The wall came up noticeably shorter than the rest of the room (usually its
     /// ceiling line wasn't scanned), so the room's height was used instead.
     case heightFromRoom
+    /// A wall under 30 cm long: often a sliver RoomPlan adds at a corner. Remove it
+    /// if the wall doesn't really step there.
+    case tinyWall
     /// A door or window with furniture in front of it. Clutter is the most common
     /// cause of false detections, so it's worth a glance.
     case nearFurniture

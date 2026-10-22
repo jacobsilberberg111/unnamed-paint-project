@@ -14,6 +14,7 @@ extension SurfaceFlag {
         case .lowConfidence: return "Low scan confidence"
         case .heightFromRoom: return "Short scan: used room height"
         case .nearFurniture: return "Furniture in front: check it's real"
+        case .tinyWall: return "Tiny wall: remove if not real"
         case .typeCorrected: return "Type corrected"
         case .curved: return "Curved"
         case .sloped: return "Sloped / not rectangular"
@@ -24,7 +25,7 @@ extension SurfaceFlag {
     /// Flags that mean the number may be off and is worth a tape check.
     public var isWarning: Bool {
         switch self {
-        case .lowConfidence, .heightFromRoom, .nearFurniture, .notOnAWall: return true
+        case .lowConfidence, .heightFromRoom, .nearFurniture, .tinyWall, .notOnAWall: return true
         case .tapeMeasured, .typeCorrected, .curved, .sloped: return false
         }
     }

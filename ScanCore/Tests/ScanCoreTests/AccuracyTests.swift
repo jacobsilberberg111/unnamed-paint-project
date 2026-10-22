@@ -327,6 +327,37 @@ final class AccuracyTests: XCTestCase {
         XCTAssertEqual(m.summary.openingsM2, 1.0 + 1.2 + 1.0, accuracy: 1e-9)
     }
 
+    func testSliverWallAtCornerStillClosesOutline() {
+        // From a real bedroom scan: RoomPlan added a 12 cm wall at one corner, and
+        // the outline fell back to RoomPlan's floor because corners couldn't be paired.
+        let rect = walls(around: [Vec2(0, 0), Vec2(4.43, 0), Vec2(4.43, 3.33), Vec2(0, 3.33)], height: 2.68)
+        // Sliver lying along the end of the right-hand wall.
+        let sliver = ScannedSurface(kind: .wall, dimensions: Vec3(0.12, 2.68, 0), center: Vec3(4.43, 1.34, 3.26),
+                                    xAxis: Vec3(0, 0, 1), yAxis: up, normal: Vec3(-1, 0, 0))
+        let m = MeasurementEngine.measure(ScanGeometry(walls: rect + [sliver]))
+        XCTAssertTrue(m.summary.isClosed)
+        XCTAssertEqual(m.summary.floorSource, .wallOutline)
+        XCTAssertEqual(m.summary.floorM2 ?? -1, 4.43 * 3.33, accuracy: 1e-9)
+        XCTAssertEqual(m.summary.wallCount, 5)
+        XCTAssertTrue(m.surface(sliver.id)!.flags.contains(.tinyWall))
+        XCTAssertFalse(rect.contains { m.surface($0.id)!.flags.contains(.tinyWall) })
+
+        // Removing it, as the painter can, gives the plain rectangle.
+        var room = Room(name: "Bedroom", geometry: ScanGeometry(walls: rect + [sliver]))
+        room.setOverride(SurfaceOverride(surfaceId: sliver.id, removed: true), for: sliver.id)
+        XCTAssertEqual(room.measure().summary.perimeterM, 2 * (4.43 + 3.33), accuracy: 1e-9)
+    }
+
+    func testChamferedCornerStillClosesOutline() {
+        // A 12 cm diagonal piece across one corner (boxing, or a scan artefact).
+        let c = 0.12 / 2.squareRoot()
+        let corners = [Vec2(0, 0), Vec2(4.43, 0), Vec2(4.43, 3.33 - c), Vec2(4.43 - c, 3.33), Vec2(0, 3.33)]
+        let m = MeasurementEngine.measure(ScanGeometry(walls: walls(around: corners, height: 2.68)))
+        XCTAssertTrue(m.summary.isClosed)
+        XCTAssertEqual(m.summary.floorSource, .wallOutline)
+        XCTAssertEqual(m.summary.floorM2 ?? -1, 4.43 * 3.33 - c * c / 2, accuracy: 1e-9)
+    }
+
     func testRoomsSavedBeforeFurnitureStillLoad() throws {
         // room.json written by the first build had no "objects" key or override kind/removed.
         var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(Room.sample)) as! [String: Any]

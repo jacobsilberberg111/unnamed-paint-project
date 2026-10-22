@@ -102,6 +102,7 @@ public enum MeasurementEngine {
             }
             if frame.tapeMeasured { flags.append(.tapeMeasured) }
             if wall.confidence == .low { flags.append(.lowConfidence) }
+            if wall.dimensions.x < cornerTolerance { flags.append(.tinyWall) }
             // A tape-measured height replaces the guess, so the warning no longer applies.
             if heights[i].fromRoom, overrideById[wall.id]?.heightM == nil { flags.append(.heightFromRoom) }
 
@@ -120,7 +121,7 @@ public enum MeasurementEngine {
                 start: frame.planEnds.start, end: frame.planEnds.end,
                 lengthM: frame.width,
                 needsAttention: wallsWithOpenEnds.contains(i)
-                    || flags.contains(.lowConfidence) || flags.contains(.heightFromRoom)
+                    || flags.contains(.lowConfidence) || flags.contains(.heightFromRoom) || flags.contains(.tinyWall)
             ))
         }
 
@@ -440,7 +441,18 @@ struct WallGraph {
             }
         }
         openEnds = open
-        loop = open.isEmpty ? Self.findLoop(ends, tolerance: tolerance) : nil
+        var loop = open.isEmpty ? Self.findLoop(ends, tolerance: tolerance) : nil
+        // A sliver wall shorter than the join distance (RoomPlan sometimes adds a
+        // 10–20 cm piece at a corner) has both ends within reach of the same
+        // neighbours, so corners can't be paired. Retry with slivers left out of the
+        // outline; they still count as walls for paint area.
+        if loop == nil, open.isEmpty {
+            let keep = ends.indices.filter { ends[$0].start.distance(to: ends[$0].end) >= tolerance }
+            if keep.count >= 3, keep.count < ends.count, let sub = Self.findLoop(keep.map { ends[$0] }, tolerance: tolerance) {
+                loop = sub.map { Joint(a: keep[$0.a], aSide: $0.aSide, b: keep[$0.b], bSide: $0.bSide, midpoint: $0.midpoint) }
+            }
+        }
+        self.loop = loop
     }
 
     static func findLoop(_ ends: [(start: Vec2, end: Vec2)], tolerance: Double) -> [Joint]? {
