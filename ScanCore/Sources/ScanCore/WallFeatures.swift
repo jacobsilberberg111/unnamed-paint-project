@@ -221,13 +221,17 @@ public enum WallFeatureClassifier {
         if label(.board) >= 0.4, label(.board) >= label(.window) {
             return FeatureVerdict(kind: .noPaint, confidence: 0.8, reason: "Looks like a pinboard, whiteboard or mirror")
         }
-        if label(.picture) >= 0.4, label(.picture) > label(.window), !glassy {
+        if label(.picture) >= 0.4, label(.picture) > label(.window) {
             return FeatureVerdict(kind: nil, confidence: 0.8, reason: "Looks like a picture: it comes down and the wall is painted")
         }
-        if label(.window) >= 0.3 || (glassy && !doorShaped) {
-            let both = label(.window) >= 0.3 && glassy
-            let reason = fullHeight ? "Floor-to-ceiling glass" : glassy ? "Glass: much darker or brighter than the wall" : "Looks like a window"
-            return FeatureVerdict(kind: .window, confidence: both || fullHeight && glassy ? 0.9 : 0.8, reason: reason)
+        // A window needs two signals that agree. Brightness alone isn't enough: a dark
+        // poster on a white wall, or a white one on a navy wall, looks just as "glassy".
+        if label(.window) >= 0.5 || (label(.window) >= 0.3 && glassy) {
+            return FeatureVerdict(kind: .window, confidence: 0.85, reason: "Looks like a window")
+        }
+        // Floor-to-ceiling glass: posters and pictures don't run floor to ceiling.
+        if fullHeight, glassy, c.width >= 1.0 {
+            return FeatureVerdict(kind: .window, confidence: 0.8, reason: "Floor-to-ceiling glass")
         }
         if doorShaped {
             let sure = label(.door) >= 0.3
@@ -236,11 +240,14 @@ public enum WallFeatureClassifier {
         if label(.door) >= 0.5, floorLevel {
             return FeatureVerdict(kind: .door, confidence: 0.75, reason: "Door")
         }
-        // Not sure: best guess, and ask.
-        if aboveFloor > 0.3, c.width * c.height >= 0.3 {
-            return FeatureVerdict(kind: .noPaint, confidence: 0.4, reason: "Something flat on the wall")
+        // Not sure: ask, defaulting to leaving the wall alone. If the painter taps
+        // through, the worst case is a little too much paint, never a fake window
+        // taking area off.
+        if glassy, let k = c.contrast {
+            return FeatureVerdict(kind: nil, confidence: 0.5,
+                                  reason: k < 1 ? "Dark like glass at night: window or poster?" : "Bright like daylight: window or poster?")
         }
-        return FeatureVerdict(kind: nil, confidence: 0.3, reason: "Something flat on the wall")
+        return FeatureVerdict(kind: nil, confidence: 0.3, reason: "Something flat on the wall: pinboard, mirror or poster?")
     }
 }
 

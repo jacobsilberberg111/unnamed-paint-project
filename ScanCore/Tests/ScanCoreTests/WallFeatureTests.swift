@@ -117,10 +117,25 @@ final class WallFeatureTests: XCTestCase {
         XCTAssertEqual(maybeDoor.kind, .door)
         XCTAssertFalse(maybeDoor.isConfident)
 
-        // Something flat with no clues: ask, guessing "don't paint".
+        // Something flat with no clues: ask, defaulting to leaving the wall alone.
         let unknown = WallFeatureClassifier.classify(candidate(bottom: 1.0, width: 0.9, height: 0.6, contrast: 0.9))
-        XCTAssertEqual(unknown.kind, .noPaint)
+        XCTAssertNil(unknown.kind)
         XCTAssertFalse(unknown.isConfident)
+    }
+
+    func testPostersAreNeverAutoAddedAsWindows() {
+        // From a real scan: two posters were added as windows on brightness alone.
+        let darkPoster = WallFeatureClassifier.classify(candidate(bottom: 1.0, width: 0.6, height: 0.9, contrast: 0.3))
+        XCTAssertFalse(darkPoster.isConfident)
+        XCTAssertNil(darkPoster.kind)
+        // A white poster on a navy feature wall.
+        let lightPoster = WallFeatureClassifier.classify(candidate(bottom: 1.1, width: 0.5, height: 0.7, contrast: 2.6))
+        XCTAssertFalse(lightPoster.isConfident)
+        XCTAssertNil(lightPoster.kind)
+        // But if the classifier also says window, it's a window.
+        let window = WallFeatureClassifier.classify(candidate(bottom: 1.0, width: 0.6, height: 0.9, contrast: 0.3, labels: [.window: 0.35]))
+        XCTAssertEqual(window.kind, .window)
+        XCTAssertTrue(window.isConfident)
     }
 
     func testSuggestionsSkipWhatRoomPlanFoundAndFurniture() {
