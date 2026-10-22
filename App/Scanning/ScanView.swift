@@ -67,7 +67,7 @@ struct ScanView: View {
 
             if sizeClass == .regular {
                 HStack(alignment: .bottom, spacing: 16) {
-                    ScanChecklist(coverage: coverage)
+                    ScanChecklist(coverage: coverage, scan: scan)
                         .frame(width: 300)
                     Spacer()
                     doneButton.frame(width: 280)
@@ -76,7 +76,7 @@ struct ScanView: View {
                 }
             } else {
                 HStack(alignment: .bottom, spacing: 12) {
-                    ScanChecklist(coverage: coverage)
+                    ScanChecklist(coverage: coverage, scan: scan)
                     miniMap.frame(width: 170, height: 190)
                 }
                 doneButton
@@ -168,6 +168,7 @@ extension ScanGuidance {
 
 struct ScanChecklist: View {
     let coverage: CoverageReport
+    let scan: ScanSession
 
     private var checks: [Bool] {
         [coverage.wallCount >= 3, coverage.isClosed,
@@ -195,6 +196,9 @@ struct ScanChecklist: View {
                 done: checks[2])
             row("Doors", "\(coverage.doorCount)", done: checks[3])
             row("Windows", "\(coverage.windowCount)", done: nil)
+            if scan.spottedCount > 0 {
+                row("Spotted by camera", "\(scan.spottedCount)", done: nil)
+            }
         }
         .font(.subheadline.weight(.semibold))
         .foregroundStyle(.white)

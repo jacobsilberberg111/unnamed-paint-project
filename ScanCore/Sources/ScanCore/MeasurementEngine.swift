@@ -43,7 +43,7 @@ public enum MeasurementEngine {
         func kept(_ s: ScannedSurface) -> Bool { overrideById[s.id]?.isRemoved != true }
         // Painter's type corrections: a "window" that's really a door, and so on.
         func retyped(_ s: ScannedSurface) -> ScannedSurface {
-            guard let kind = overrideById[s.id]?.kind, kind != s.kind, [.door, .window, .opening].contains(kind) else { return s }
+            guard let kind = overrideById[s.id]?.kind, kind != s.kind, [.door, .window, .opening, .noPaint].contains(kind) else { return s }
             var s = s
             s.kind = kind
             return s
@@ -55,7 +55,7 @@ public enum MeasurementEngine {
         let corners = graph.loop.map { refinedCorners($0, walls: walls) }
         let sloped = walls.map(isSloped)
         let heights = consensusHeights(walls, sloped: sloped)
-        let openingsIn = (g.doors + g.windows + g.openings).filter(kept).map(retyped)
+        let openingsIn = (g.doors + g.windows + g.openings + g.noPaint).filter(kept).map(retyped)
 
         let builtInIds = Set(choices.filter { $0.builtIn == true }.map(\.objectId))
         let builtIns = g.objects.filter { builtInIds.contains($0.id) && !FurnitureEstimator.appliances.contains($0.category) }
@@ -155,10 +155,17 @@ public enum MeasurementEngine {
             let kind = p.surface.kind
             counters[kind, default: 0] += 1
             let n = counters[kind]!
-            let (name, short) = kind == .door ? ("Door", "D") : kind == .window ? ("Window", "W") : ("Opening", "O")
+            let (name, short): (String, String)
+            switch kind {
+            case .door: (name, short) = ("Door", "D")
+            case .window: (name, short) = ("Window", "W")
+            case .noPaint: (name, short) = ("Not painted", "N")
+            default: (name, short) = ("Opening", "O")
+            }
             var flags: [SurfaceFlag] = []
             if p.tapeMeasured { flags.append(.tapeMeasured) }
             if overrideById[p.surface.id]?.kind != nil { flags.append(.typeCorrected) }
+            if p.surface.spotted == true { flags.append(.foundByCamera) }
             if p.surface.confidence == .low { flags.append(.lowConfidence) }
             if p.frame == nil { flags.append(.notOnAWall) }
             if kind == .door, !p.tapeMeasured, let frame = p.frame, let clipped = p.clipped,
@@ -166,7 +173,7 @@ public enum MeasurementEngine {
                 flags.append(.nearCeiling)
             }
             let bottom = p.surface.center.y - p.surface.height / 2
-            if g.objects.contains(where: { $0.blocks(p.surface, width: p.surface.width, bottom: bottom, top: bottom + p.surface.height,
+            if kind != .noPaint, g.objects.contains(where: { $0.blocks(p.surface, width: p.surface.width, bottom: bottom, top: bottom + p.surface.height,
                                                       depth: furnitureDepth, coverage: furnitureCoverage) }) {
                 flags.append(.nearFurniture)
             }
@@ -235,6 +242,7 @@ public enum MeasurementEngine {
         summary.maxWallHeightM = wallHeights.max() ?? 0
         let doorways = placed.reduce(0.0) { total, p in
             guard let frame = p.frame, let clipped = p.clipped else { return total }
+            guard p.surface.kind != .noPaint else { return total }
             let floorLevel = p.surface.kind == .door || clipped.minY - frame.rect.minY < floorLevelTolerance
             return floorLevel ? total + clipped.width : total
         }

@@ -49,6 +49,12 @@ which accepts this app's `room.json` or a raw RoomPlan `CapturedRoom` JSON
   **built in** takes the wall and skirting behind it off the paint area.
 - **Doors** reaching within 15 cm of the ceiling are flagged for a height check: RoomPlan
   sometimes takes in the strip of wall above the frame.
+- **Camera double-check**: while you scan, Apple's Vision finds flat rectangles on the walls
+  (windows RoomPlan missed, such as dark glass at night, plus pinboards and mirrors). Each is
+  placed on the LiDAR wall for its real size and classified from its shape, brightness and
+  Apple's on-device image classifier. Confident ones are added automatically ("Found by
+  camera"); only unclear ones are shown in a quick review with a photo. Pictures and posters
+  are ignored (they come down; the wall is painted).
 - **Openings**: doors/windows are attached to their wall (RoomPlan's parent id, else nearest
   plane), clipped to the wall, and overlaps are counted once.
 - **Sloped and curved walls** use their real outline or arc length, not width × height.

@@ -62,7 +62,11 @@ final class RoomStore {
 
     @discardableResult
     func add(captured: CapturedRoom, name: String) throws -> Room {
-        let room = Room(captured: captured, name: name)
+        try add(Room(captured: captured, name: name), captured: captured)
+    }
+
+    @discardableResult
+    func add(_ room: Room, captured: CapturedRoom) throws -> Room {
         try writeScan(try JSONEncoder().encode(captured), for: room)
         try save(room)
         return room

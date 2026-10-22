@@ -20,19 +20,34 @@ struct ScanFlowView: View {
                     scan.cancel()
                     dismiss()
                 })
+            case .review:
+                WallFeatureReviewView(items: scan.unsure, autoAdded: scan.autoAdded) { choices in
+                    guard var room = scan.pendingRoom else { return }
+                    for item in scan.unsure {
+                        if let kind = choices[item.id] ?? item.verdict.kind { room.add(item.surface(as: kind)) }
+                    }
+                    scan.pendingRoom = room
+                    save()
+                }
             case .failed(let message):
                 ScanFailedView(message: message, onRetry: { scan.start() }, onClose: { dismiss() })
             }
         }
         .onAppear {
             scan.onCaptured = { captured in
-                do {
-                    let room = try store.add(captured: captured, name: scan.roomName)
-                    onFinish(room)
-                } catch {
-                    scan.fail("Couldn't save the scan: \(error.localizedDescription)")
-                }
+                // Add what the camera is sure of; only stop to ask if something's unclear.
+                scan.review(Room(captured: captured, name: scan.roomName), captured: captured)
+                if scan.unsure.isEmpty { save() }
             }
+        }
+    }
+
+    private func save() {
+        guard let room = scan.pendingRoom, let captured = scan.pendingCapture else { return }
+        do {
+            onFinish(try store.add(room, captured: captured))
+        } catch {
+            scan.fail("Couldn't save the scan: \(error.localizedDescription)")
         }
     }
 }
@@ -54,7 +69,7 @@ struct ScanTipsView: View {
         Tip(symbol: "figure.stand", title: "Start in a corner", detail: "Hold the iPad upright at chest height, screen facing you."),
         Tip(symbol: "figure.walk", title: "Walk the walls slowly", detail: "Go all the way round. Each wall draws in as it's measured."),
         Tip(symbol: "arrow.up.and.down", title: "Tilt up and down on every wall", detail: "Catch the ceiling line and the skirting so heights are exact."),
-        Tip(symbol: "door.left.hand.open", title: "Point at every door and window", detail: "They're subtracted from the paint area, so each needs to be seen."),
+        Tip(symbol: "door.left.hand.open", title: "Walk up to every door and window", detail: "Get within about 2 m so each fits on screen. The camera double-checks them, even dark windows at night, and spots pinboards and mirrors too."),
         Tip(symbol: "sofa.fill", title: "Clutter can fool it", detail: "Wardrobes, drum kits and shelving against a wall sometimes read as windows. You can fix or remove any detection afterwards."),
         Tip(symbol: "map.fill", title: "Watch the map", detail: "Red dots are gaps. Finish back where you started, with no red dots."),
     ]

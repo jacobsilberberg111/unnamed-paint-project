@@ -2,6 +2,8 @@ import Foundation
 
 public enum SurfaceKind: String, Codable, CaseIterable, Sendable {
     case wall, ceiling, floor, door, window, opening
+    /// A patch of wall that isn't painted: pinboard, mirror, whiteboard.
+    case noPaint
 }
 
 public enum ScanConfidence: String, Codable, Sendable {
@@ -35,6 +37,8 @@ public struct ScannedSurface: Codable, Identifiable, Equatable, Sendable {
     /// are detected from their height instead.
     public var completedEdges: Set<SurfaceEdge>
     public var isOpen: Bool?
+    /// Found by the camera after RoomPlan missed it, rather than by RoomPlan.
+    public var spotted: Bool?
 
     public init(
         id: UUID = UUID(),
@@ -49,7 +53,8 @@ public struct ScannedSurface: Codable, Identifiable, Equatable, Sendable {
         parentId: UUID? = nil,
         confidence: ScanConfidence = .high,
         completedEdges: Set<SurfaceEdge> = Set(SurfaceEdge.allCases),
-        isOpen: Bool? = nil
+        isOpen: Bool? = nil,
+        spotted: Bool? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -64,6 +69,7 @@ public struct ScannedSurface: Codable, Identifiable, Equatable, Sendable {
         self.confidence = confidence
         self.completedEdges = completedEdges
         self.isOpen = isOpen
+        self.spotted = spotted
     }
 
     public var isCurved: Bool {
@@ -144,6 +150,8 @@ public struct ScanGeometry: Codable, Equatable, Sendable {
     public var doors: [ScannedSurface]
     public var windows: [ScannedSurface]
     public var openings: [ScannedSurface]
+    /// Patches the painter marked as not painted (added after the scan, not by RoomPlan).
+    public var noPaint: [ScannedSurface]
     public var floors: [ScannedSurface]
     public var objects: [ScannedObject]
     /// RoomPlan's guess at the room type, e.g. "livingRoom".
@@ -154,6 +162,7 @@ public struct ScanGeometry: Codable, Equatable, Sendable {
         doors: [ScannedSurface] = [],
         windows: [ScannedSurface] = [],
         openings: [ScannedSurface] = [],
+        noPaint: [ScannedSurface] = [],
         floors: [ScannedSurface] = [],
         objects: [ScannedObject] = [],
         roomType: String? = nil
@@ -162,13 +171,14 @@ public struct ScanGeometry: Codable, Equatable, Sendable {
         self.doors = doors
         self.windows = windows
         self.openings = openings
+        self.noPaint = noPaint
         self.floors = floors
         self.objects = objects
         self.roomType = roomType
     }
 
     private enum CodingKeys: String, CodingKey {
-        case walls, doors, windows, openings, floors, objects, roomType
+        case walls, doors, windows, openings, noPaint, floors, objects, roomType
     }
 
     // Rooms saved before furniture was recorded have no "objects" key.
@@ -178,6 +188,7 @@ public struct ScanGeometry: Codable, Equatable, Sendable {
         doors = try c.decode([ScannedSurface].self, forKey: .doors)
         windows = try c.decode([ScannedSurface].self, forKey: .windows)
         openings = try c.decode([ScannedSurface].self, forKey: .openings)
+        noPaint = try c.decodeIfPresent([ScannedSurface].self, forKey: .noPaint) ?? []
         floors = try c.decode([ScannedSurface].self, forKey: .floors)
         objects = try c.decodeIfPresent([ScannedObject].self, forKey: .objects) ?? []
         roomType = try c.decodeIfPresent(String.self, forKey: .roomType)

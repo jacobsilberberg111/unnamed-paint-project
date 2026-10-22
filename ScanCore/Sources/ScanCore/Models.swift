@@ -28,6 +28,8 @@ public enum SurfaceFlag: String, Codable, Sendable {
     case nearFurniture
     /// The painter changed what RoomPlan thought this was (e.g. window → door).
     case typeCorrected
+    /// Found by the camera after RoomPlan missed it.
+    case foundByCamera
     case curved
     /// Not a rectangle: gable end, raked ceiling or similar.
     case sloped
@@ -177,13 +179,24 @@ public struct Room: Codable, Identifiable, Equatable, Sendable {
 
     /// The surface as RoomPlan reported it, before any corrections.
     public func scannedSurface(_ id: UUID) -> ScannedSurface? {
-        (geometry.walls + geometry.doors + geometry.windows + geometry.openings).first { $0.id == id }
+        (geometry.walls + geometry.doors + geometry.windows + geometry.openings + geometry.noPaint).first { $0.id == id }
+    }
+
+    /// Adds a door, window, opening or no-paint patch found after the scan.
+    public mutating func add(_ surface: ScannedSurface) {
+        switch surface.kind {
+        case .door: geometry.doors.append(surface)
+        case .window: geometry.windows.append(surface)
+        case .opening: geometry.openings.append(surface)
+        case .noPaint: geometry.noPaint.append(surface)
+        default: break
+        }
     }
 
     /// Detections the painter removed, so they can be put back.
     public var removedSurfaces: [ScannedSurface] {
         let ids = Set(overrides.filter(\.isRemoved).map(\.surfaceId))
-        return (geometry.walls + geometry.doors + geometry.windows + geometry.openings).filter { ids.contains($0.id) }
+        return (geometry.walls + geometry.doors + geometry.windows + geometry.openings + geometry.noPaint).filter { ids.contains($0.id) }
     }
 }
 
@@ -276,7 +289,7 @@ public struct RoomMeasurements: Equatable, Sendable {
     public var furniture: [FurnitureItem] = []
 
     public var walls: [Surface] { surfaces.filter { $0.kind == .wall } }
-    public var openingSurfaces: [Surface] { surfaces.filter { [.door, .window, .opening].contains($0.kind) } }
+    public var openingSurfaces: [Surface] { surfaces.filter { [.door, .window, .opening, .noPaint].contains($0.kind) } }
     public var ceiling: Surface? { surfaces.first { $0.kind == .ceiling } }
 
     public func openings(onWall wallId: UUID) -> [Surface] {

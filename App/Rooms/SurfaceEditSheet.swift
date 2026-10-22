@@ -15,7 +15,7 @@ struct SurfaceEditSheet: View {
     @State private var height: Double
     @State private var kind: SurfaceKind
 
-    private var isOpening: Bool { [.door, .window, .opening].contains(surface.kind) }
+    private var isOpening: Bool { [.door, .window, .opening, .noPaint].contains(surface.kind) }
 
     init(surface: Surface, originalKind: SurfaceKind, existing: SurfaceOverride?, onSave: @escaping (SurfaceOverride?) -> Void) {
         self.surface = surface
@@ -36,6 +36,7 @@ struct SurfaceEditSheet: View {
                             Text("Door").tag(SurfaceKind.door)
                             Text("Window").tag(SurfaceKind.window)
                             Text("Opening").tag(SurfaceKind.opening)
+                            Text("Don't paint").tag(SurfaceKind.noPaint)
                         }
                         .pickerStyle(.segmented)
                     } header: {

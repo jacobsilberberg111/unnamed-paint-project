@@ -1,3 +1,4 @@
+import ARKit
 import Foundation
 import Observation
 import RoomPlan
@@ -63,7 +64,7 @@ enum ScanInstruction: Equatable {
 @Observable
 final class ScanSession {
     enum Phase: Equatable {
-        case tips, scanning, processing, failed(String)
+        case tips, scanning, processing, review, failed(String)
     }
 
     var phase: Phase = .tips
@@ -71,7 +72,18 @@ final class ScanSession {
     var instruction: ScanInstruction = .normal
     var coverage: CoverageReport = .empty
     var pose: DevicePose?
+    /// Rectangles the camera has spotted on the walls so far.
+    var spottedCount = 0
+    /// After the scan: the room, and the spotted things the app wasn't sure about.
+    var pendingRoom: Room?
+    var unsure: [WallFeatureSuggestion] = []
+    /// How many spotted things were added without asking.
+    var autoAdded = 0
 
+    @ObservationIgnored let detector = WallFeatureDetector()
+    /// Walls from the latest live update, for placing what the camera sees.
+    @ObservationIgnored private(set) var liveWalls: [ScannedSurface] = []
+    @ObservationIgnored var pendingCapture: CapturedRoom?
     @ObservationIgnored weak var controller: RoomCaptureViewController?
     /// Called once with RoomPlan's final, processed room.
     @ObservationIgnored var onCaptured: ((CapturedRoom) -> Void)?
@@ -80,12 +92,38 @@ final class ScanSession {
         coverage = .empty
         instruction = .normal
         pose = nil
+        spottedCount = 0
+        liveWalls = []
+        pendingRoom = nil
+        pendingCapture = nil
+        unsure = []
+        detector.reset()
         phase = .scanning
     }
 
     func update(_ geometry: ScanGeometry) {
         guard phase == .scanning else { return }
         coverage = Coverage.analyse(geometry)
+        liveWalls = geometry.walls
+    }
+
+    /// Called a few times a second with the latest camera frame.
+    func look(at frame: ARFrame) {
+        guard phase == .scanning else { return }
+        detector.submit(frame, walls: liveWalls)
+        let count = detector.confirmed.count
+        if count != spottedCount { spottedCount = count }
+    }
+
+    /// Room scanned and processed: add what the camera is sure of, ask about the rest.
+    func review(_ room: Room, captured: CapturedRoom) {
+        var room = room
+        let suggestions = WallFeatureSuggester.suggestions(detector.confirmed, in: room.geometry)
+        unsure = room.applyConfident(suggestions)
+        autoAdded = suggestions.filter { $0.verdict.isConfident && $0.verdict.kind != nil }.count
+        pendingRoom = room
+        pendingCapture = captured
+        phase = .review
     }
 
     func finish() {
@@ -105,7 +143,7 @@ final class ScanSession {
     }
 
     func fail(_ message: String) {
-        guard phase == .scanning || phase == .processing else { return }
+        guard phase == .scanning || phase == .processing || phase == .review else { return }
         phase = .failed(message)
     }
 }

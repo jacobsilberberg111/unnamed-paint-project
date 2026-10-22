@@ -17,6 +17,7 @@ extension SurfaceFlag {
         case .tinyWall: return "Tiny wall: remove if not real"
         case .nearCeiling: return "Reaches the ceiling: check its height"
         case .typeCorrected: return "Type corrected"
+        case .foundByCamera: return "Found by camera"
         case .curved: return "Curved"
         case .sloped: return "Sloped / not rectangular"
         case .notOnAWall: return "Not matched to a wall"
@@ -27,7 +28,7 @@ extension SurfaceFlag {
     public var isWarning: Bool {
         switch self {
         case .lowConfidence, .heightFromRoom, .nearFurniture, .tinyWall, .nearCeiling, .notOnAWall: return true
-        case .tapeMeasured, .typeCorrected, .curved, .sloped: return false
+        case .tapeMeasured, .typeCorrected, .foundByCamera, .curved, .sloped: return false
         }
     }
 }

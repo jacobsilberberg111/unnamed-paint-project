@@ -315,6 +315,7 @@ private struct OpeningRow: View {
         switch opening.kind {
         case .door: return "door.left.hand.closed"
         case .window: return "window.vertical.closed"
+        case .noPaint: return "nosign"
         default: return "rectangle.portrait.dashed"
         }
     }

@@ -69,6 +69,7 @@ final class RoomCaptureViewController: UIViewController, RoomCaptureViewDelegate
 
     @objc private func publishPose() {
         guard let frame = captureView?.captureSession.arSession.currentFrame else { return }
+        scan.look(at: frame)
         let t = frame.camera.transform
         // The camera looks down its local -z axis.
         scan.pose = DevicePose(
